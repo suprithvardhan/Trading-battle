@@ -59,6 +59,8 @@ const MatchPage = () => {
         const response = await api.get(`/matches/${matchId}`)
         
         if (response.data.success) {
+          console.log('📊 Match data loaded:', response.data.match)
+          console.log('🔍 Match ID:', response.data.match?._id)
           setMatchData(response.data.match)
         } else {
           console.error('Match not found')
@@ -98,6 +100,9 @@ const MatchPage = () => {
       unsubscribe = binanceWebSocketService.subscribe((tickerData) => {
         console.log(`💰 Price update for TradingPanel:`, tickerData)
         setTickerData(tickerData)
+        
+        // Check for order execution
+        checkOrderExecution(tickerData.price)
       })
     })
 
@@ -110,51 +115,172 @@ const MatchPage = () => {
     }
   }, [selectedTicker])
 
-  // Fetch orders and positions
-  useEffect(() => {
-    const fetchOrdersAndPositions = async () => {
-      try {
-        if (matchData?.id) {
-          // Fetch orders
-          const ordersResponse = await fetch(`/api/orders/${matchData.id}`, {
-            headers: {
-              'Authorization': `Bearer ${localStorage.getItem('token')}`
-            }
-          })
-          const ordersData = await ordersResponse.json()
-          
-          if (ordersData.success) {
-            const allOrders = ordersData.orders || []
-            setOrders({
-              current: allOrders.filter(order => order.status === 'filled'),
-              open: allOrders.filter(order => order.status === 'pending'),
-              history: allOrders.filter(order => order.status === 'cancelled' || order.status === 'rejected')
-            })
-          }
+  // Check and execute orders when price conditions are met
+  const checkOrderExecution = async (currentPrice) => {
+    try {
+      if (!matchData?._id || !orders.open?.length) {
+        console.log('🔍 No orders to check:', { matchId: matchData?._id, openOrders: orders.open?.length })
+        return
+      }
 
-          // Fetch positions
-          const positionsResponse = await fetch(`/api/positions/${matchData.id}`, {
-            headers: {
-              'Authorization': `Bearer ${localStorage.getItem('token')}`
+      const pendingOrders = orders.open.filter(order => 
+        order.status === 'pending' && 
+        order.symbol === selectedTicker
+      )
+
+      console.log(`🔍 Checking ${pendingOrders.length} pending orders for ${selectedTicker}`)
+
+      for (const order of pendingOrders) {
+        let shouldExecute = false
+
+        // Skip market orders (they execute immediately on placement)
+        if (order.type === 'market') {
+          continue
+        }
+
+        // Get the market price when order was placed
+        const marketPriceAtPlacement = order.marketPriceAtPlacement || 0
+        const limitPrice = order.price
+
+        console.log(`🔍 Checking order ${order._id}:`, {
+          side: order.side,
+          type: order.type,
+          limitPrice,
+          marketPriceAtPlacement,
+          currentPrice,
+          condition: marketPriceAtPlacement < limitPrice ? 'breakout' : 'pullback'
+        })
+
+        // BUY ORDERS
+        if (order.side === 'buy') {
+          if (order.type === 'limit') {
+            if (marketPriceAtPlacement < limitPrice) {
+              // Breakout: Execute when current price >= limit price (price breaks above limit)
+              shouldExecute = currentPrice >= limitPrice
+              console.log(`📈 BUY breakout: ${currentPrice} >= ${limitPrice} = ${shouldExecute}`)
+            } else {
+              // Pullback: Execute when current price <= limit price (price drops to limit)
+              shouldExecute = currentPrice <= limitPrice
+              console.log(`📉 BUY pullback: ${currentPrice} <= ${limitPrice} = ${shouldExecute}`)
             }
-          })
-          const positionsData = await positionsResponse.json()
-          
-          if (positionsData.success) {
-            setPositions(positionsData.positions || [])
+          } else if (order.type === 'stop_market') {
+            // Stop market: Execute when current price >= stop price (breakout)
+            shouldExecute = currentPrice >= limitPrice
+            console.log(`🛑 BUY stop: ${currentPrice} >= ${limitPrice} = ${shouldExecute}`)
           }
         }
-      } catch (error) {
-        console.error('Error fetching orders and positions:', error)
-        setOrders({
-          current: [],
-          open: [],
-          history: []
-        })
-        setPositions([])
-      }
-    }
+        // SELL ORDERS
+        else if (order.side === 'sell') {
+          if (order.type === 'limit') {
+            if (marketPriceAtPlacement > limitPrice) {
+              // Pullback: Execute when current price <= limit price
+              shouldExecute = currentPrice <= limitPrice
+              console.log(`📉 SELL pullback: ${currentPrice} <= ${limitPrice} = ${shouldExecute}`)
+            } else {
+              // Breakout: Execute when current price >= limit price
+              shouldExecute = currentPrice >= limitPrice
+              console.log(`📈 SELL breakout: ${currentPrice} >= ${limitPrice} = ${shouldExecute}`)
+            }
+          } else if (order.type === 'stop_market') {
+            // Stop market: Execute when current price <= stop price (breakdown)
+            shouldExecute = currentPrice <= limitPrice
+            console.log(`🛑 SELL stop: ${currentPrice} <= ${limitPrice} = ${shouldExecute}`)
+          }
+        }
 
+        if (shouldExecute) {
+          console.log(`🎯 Executing ${order.side.toUpperCase()} ${order.type.toUpperCase()} order ${order._id} at price ${currentPrice}`)
+          await executeOrder(order._id, currentPrice)
+          // Break to avoid multiple executions in the same cycle
+          break
+        }
+      }
+    } catch (error) {
+      console.error('Error checking order execution:', error)
+    }
+  }
+
+  // Execute an order
+  const executeOrder = async (orderId, executionPrice) => {
+    try {
+      console.log(`🚀 Executing order ${orderId} at price ${executionPrice}`)
+      
+      const response = await fetch(`http://localhost:5000/api/orders/${orderId}/execute`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          executionPrice,
+          executionQuantity: null // Use full quantity
+        })
+      })
+
+      const data = await response.json()
+      console.log(`📥 Execution response:`, data)
+      
+      if (data.success) {
+        console.log(`✅ Order ${orderId} executed successfully`)
+        // Refresh orders and positions
+        fetchOrdersAndPositions()
+      } else {
+        console.error('❌ Failed to execute order:', data.message)
+      }
+    } catch (error) {
+      console.error('❌ Error executing order:', error)
+    }
+  }
+
+  // Fetch orders and positions
+  const fetchOrdersAndPositions = async () => {
+    try {
+      if (matchData?._id) {
+        // Fetch orders
+        const ordersResponse = await fetch(`http://localhost:5000/api/orders/${matchData._id}`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        })
+        const ordersData = await ordersResponse.json()
+        
+        if (ordersData.success) {
+          const allOrders = ordersData.orders || []
+          setOrders({
+            current: allOrders.filter(order => order.status === 'filled'),
+            open: allOrders.filter(order => order.status === 'pending'),
+            history: allOrders.filter(order => 
+              order.status === 'cancelled' || 
+              order.status === 'rejected' || 
+              order.status === 'filled'
+            )
+          })
+        }
+
+        // Fetch positions
+        const positionsResponse = await fetch(`http://localhost:5000/api/positions/${matchData._id}`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        })
+        const positionsData = await positionsResponse.json()
+        
+        if (positionsData.success) {
+          setPositions(positionsData.positions || [])
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching orders and positions:', error)
+      setOrders({
+        current: [],
+        open: [],
+        history: []
+      })
+      setPositions([])
+    }
+  }
+
+  useEffect(() => {
     fetchOrdersAndPositions()
   }, [matchData])
 
@@ -167,8 +293,8 @@ const MatchPage = () => {
           binanceWebSocketService.disconnect()
         })
 
-        if (matchData?.id) {
-          await api.post(`/matches/${matchData.id}/quit`)
+        if (matchData?._id) {
+          await api.post(`/matches/${matchData._id}/quit`)
         }
         // Show result overlay with defeat
         const opponent = matchData?.players?.find(p => {
@@ -268,7 +394,7 @@ const MatchPage = () => {
       console.log('🏁 Ending match...', { winner, userBalance: userPlayer.currentBalance, opponentBalance: opponentPlayer.currentBalance })
       setMatchEnded(true)
       
-      const response = await api.post(`/matches/${matchData.id}/end`, {
+      const response = await api.post(`/matches/${matchData._id}/end`, {
         winner,
         userBalance: userPlayer.currentBalance,
         opponentBalance: opponentPlayer.currentBalance,
@@ -381,12 +507,13 @@ const MatchPage = () => {
               ticker={selectedTicker}
               tickerData={tickerData}
               userBalance={userPlayer?.currentBalance || 0}
-              matchId={matchData.id}
+              matchId={matchData?._id || 'mock-match-id'}
               onOrderPlaced={() => {
-                // Refresh orders
-                window.location.reload()
+                // Refresh orders and positions without page reload
+                fetchOrdersAndPositions()
               }}
             />
+            {console.log('🔍 Passing matchId to TradingPanel:', matchData?._id || 'mock-match-id')}
           </div>
         </div>
 
@@ -397,7 +524,7 @@ const MatchPage = () => {
             onTabChange={setActiveOrderTab}
             orders={orders}
             positions={positions}
-            matchId={matchData.id}
+            matchId={matchData._id}
             onPositionClose={handlePositionClose}
             onPositionUpdate={handlePositionUpdate}
           />

@@ -22,9 +22,9 @@ const OrderManagement = ({ activeTab, onTabChange, orders, positions, matchId, o
   const [loading, setLoading] = useState(false)
 
   const tabs = [
-    { id: 'positions', label: 'Positions', icon: BarChart3 },
-    { id: 'open', label: 'Open Orders', icon: Clock },
-    { id: 'history', label: 'History', icon: CheckCircle }
+    { id: 'positions', label: 'Positions', icon: BarChart3, count: positions.length },
+    { id: 'open', label: 'Open Orders', icon: Clock, count: orders.open?.length || 0 },
+    { id: 'history', label: 'History', icon: CheckCircle, count: orders.history?.length || 0 }
   ]
 
   const filteredOrders = orders[activeTab]?.filter(order => {
@@ -78,13 +78,25 @@ const OrderManagement = ({ activeTab, onTabChange, orders, positions, matchId, o
   const handleCancelOrder = async (orderId) => {
     try {
       setLoading(true)
-      const response = await axios.post(`http://localhost:5000/api/matches/${matchId}/cancel-order`, {
-        orderId
+      const response = await fetch(`http://localhost:5000/api/orders/${orderId}/cancel`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        }
       })
       
-      if (response.data.success) {
-        // Refresh orders
-        window.location.reload()
+      const data = await response.json()
+      
+      if (data.success) {
+        // Remove the cancelled order from the list
+        setOrders(prev => ({
+          ...prev,
+          open: prev.open.filter(order => order._id !== orderId),
+          history: [...prev.history, { ...prev.open.find(order => order._id === orderId), status: 'cancelled' }]
+        }))
+      } else {
+        console.error('Failed to cancel order:', data.message)
       }
     } catch (error) {
       console.error('Error cancelling order:', error)
@@ -132,6 +144,17 @@ const OrderManagement = ({ activeTab, onTabChange, orders, positions, matchId, o
             >
               <tab.icon className="w-4 h-4" />
               <span>{tab.label}</span>
+              {tab.count > 0 && (
+                <span className={`px-2 py-1 text-xs rounded-full ${
+                  activeTab === tab.id
+                    ? 'bg-blue-500 text-white'
+                    : isDark
+                      ? 'bg-gray-600 text-gray-300'
+                      : 'bg-gray-200 text-gray-700'
+                }`}>
+                  {tab.count}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -212,7 +235,7 @@ const OrderManagement = ({ activeTab, onTabChange, orders, positions, matchId, o
             <AnimatePresence>
               {filteredOrders.map((order, index) => (
                 <motion.div
-                  key={order.id}
+                  key={order._id}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
@@ -226,15 +249,15 @@ const OrderManagement = ({ activeTab, onTabChange, orders, positions, matchId, o
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-4">
                       {/* Order Type Icon */}
-                      <div className={`p-2 rounded-full ${
-                        order.type === 'buy' 
+                      <div className={`p-3 rounded-full ${
+                        order.side === 'buy' 
                           ? 'bg-green-100 text-green-600' 
                           : 'bg-red-100 text-red-600'
                       }`}>
-                        {order.type === 'buy' ? (
-                          <TrendingUp className="w-4 h-4" />
+                        {order.side === 'buy' ? (
+                          <TrendingUp className="w-5 h-5" />
                         ) : (
-                          <TrendingDown className="w-4 h-4" />
+                          <TrendingDown className="w-5 h-5" />
                         )}
                       </div>
 
@@ -247,11 +270,16 @@ const OrderManagement = ({ activeTab, onTabChange, orders, positions, matchId, o
                             {order.symbol}
                           </span>
                           <span className={`text-sm px-2 py-1 rounded-full ${
-                            order.type === 'buy' 
+                            order.side === 'buy' 
                               ? 'bg-green-100 text-green-700' 
                               : 'bg-red-100 text-red-700'
                           }`}>
-                            {order.type.toUpperCase()}
+                            {order.side.toUpperCase()}
+                          </span>
+                          <span className={`text-xs px-2 py-1 rounded-full ${
+                            isDark ? 'bg-gray-600 text-gray-300' : 'bg-gray-200 text-gray-700'
+                          }`}>
+                            {order.type === 'stop_market' ? 'STOP' : order.type.toUpperCase()}
                           </span>
                         </div>
                         <div className={`text-sm transition-colors duration-300 ${
@@ -276,7 +304,7 @@ const OrderManagement = ({ activeTab, onTabChange, orders, positions, matchId, o
                         <div className={`font-medium transition-colors duration-300 ${
                           isDark ? 'text-white' : 'text-gray-900'
                         }`}>
-                          {formatPrice(order.totalValue)}
+                          {formatPrice(order.quantity * order.price)}
                         </div>
                         <div className={`text-sm transition-colors duration-300 ${
                           isDark ? 'text-gray-400' : 'text-gray-600'
@@ -304,7 +332,7 @@ const OrderManagement = ({ activeTab, onTabChange, orders, positions, matchId, o
                       {/* Cancel Button (for open orders) */}
                       {activeTab === 'open' && order.status === 'pending' && (
                         <button
-                          onClick={() => handleCancelOrder(order.id)}
+                          onClick={() => handleCancelOrder(order._id)}
                           disabled={loading}
                           className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors"
                         >

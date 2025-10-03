@@ -45,7 +45,7 @@ const PositionCard = ({ position, onClose, onUpdateLeverage, onUpdateTPSL }) => 
 
   const handleClosePosition = async () => {
     try {
-      const response = await fetch(`/api/positions/${position._id}/close`, {
+      const response = await fetch(`http://localhost:5000/api/positions/${position._id}/close`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -66,7 +66,7 @@ const PositionCard = ({ position, onClose, onUpdateLeverage, onUpdateTPSL }) => 
 
   const handleUpdateLeverage = async () => {
     try {
-      const response = await fetch(`/api/positions/${position._id}/leverage`, {
+      const response = await fetch(`http://localhost:5000/api/positions/${position._id}/leverage`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -88,7 +88,7 @@ const PositionCard = ({ position, onClose, onUpdateLeverage, onUpdateTPSL }) => 
 
   const handleUpdateTPSL = async () => {
     try {
-      const response = await fetch(`/api/positions/${position._id}/tpsl`, {
+      const response = await fetch(`http://localhost:5000/api/positions/${position._id}/tpsl`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

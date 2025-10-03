@@ -118,6 +118,10 @@ app.use('/api/matchmaking', matchmakingRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/positions', positionsRoutes);
 
+console.log('✅ Routes mounted successfully');
+console.log('✅ Orders route: /api/orders');
+console.log('✅ Positions route: /api/positions');
+
 // Health check
 app.get('/api/health', (req, res) => {
   const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
@@ -157,6 +161,8 @@ app.use((req, res) => {
 const server = app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
+  console.log(`📊 Orders endpoint: http://localhost:${PORT}/api/orders`);
+  console.log(`📊 Positions endpoint: http://localhost:${PORT}/api/positions`);
   console.log(`⚡ Ready to handle requests!`);
 });
 

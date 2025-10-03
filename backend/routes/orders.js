@@ -1,13 +1,32 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 const Order = require('../models/Order');
 const Position = require('../models/Position');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
 
+// Function to get current market price
+const getCurrentPrice = async (symbol) => {
+  try {
+    const response = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`)
+    const data = await response.json()
+    return parseFloat(data.price)
+  } catch (error) {
+    console.error('Error fetching current price:', error)
+    return 0
+  }
+}
+
 // Create new order
 router.post('/', auth, async (req, res) => {
   try {
+    console.log('📊 Received order request:', req.body);
+    console.log('📊 Request headers:', req.headers);
+    console.log('📊 Content-Type:', req.get('Content-Type'));
+    console.log('📊 Body type:', typeof req.body);
+    console.log('📊 Body keys:', Object.keys(req.body || {}));
+    
     const {
       matchId,
       symbol,
@@ -24,36 +43,70 @@ router.post('/', auth, async (req, res) => {
       reduceOnly
     } = req.body;
 
+    console.log('🔍 Extracted fields:', {
+      matchId,
+      symbol,
+      side,
+      type,
+      quantity,
+      price,
+      leverage
+    });
+
     // Validate required fields
     if (!matchId || !symbol || !side || !type || !quantity || !price || !leverage) {
+      console.log('❌ Missing required fields:', {
+        matchId: !!matchId,
+        symbol: !!symbol,
+        side: !!side,
+        type: !!type,
+        quantity: !!quantity,
+        price: !!price,
+        leverage: !!leverage
+      });
       return res.status(400).json({
         success: false,
         message: 'Missing required fields'
       });
     }
 
+    // Get current market price for the symbol
+    const currentPrice = await getCurrentPrice(symbol)
+    
+    // For market orders, use current price
+    const orderPrice = type === 'market' ? currentPrice : parseFloat(price)
+    
     // Create order
-    const order = new Order({
-      user: req.user.id,
-      match: matchId,
+    const orderData = {
+      user: req.userId,
+      match: mongoose.isValidObjectId(matchId) ? new mongoose.Types.ObjectId(matchId) : matchId,
       symbol,
       side,
       type,
       quantity: parseFloat(quantity),
-      price: parseFloat(price),
+      price: orderPrice,
       stopPrice: stopPrice ? parseFloat(stopPrice) : undefined,
       marginMode: marginMode || 'cross',
       leverage: parseInt(leverage),
       takeProfitPrice: takeProfitPrice ? parseFloat(takeProfitPrice) : undefined,
       stopLossPrice: stopLossPrice ? parseFloat(stopLossPrice) : undefined,
       timeInForce: timeInForce || 'GTC',
-      reduceOnly: reduceOnly || false
-    });
+      reduceOnly: reduceOnly || false,
+      // Store the market price when order was placed
+      marketPriceAtPlacement: currentPrice
+    };
+    
+    console.log('📊 Creating order with data:', orderData);
+    
+    const order = new Order(orderData);
 
+    console.log('📊 Saving order...');
     await order.save();
+    console.log('✅ Order saved successfully:', order._id);
 
     // If market order, execute immediately
     if (type === 'market') {
+      console.log('📊 Executing market order...');
       await executeOrder(order);
     }
 
@@ -78,7 +131,7 @@ router.get('/:matchId', auth, async (req, res) => {
     const { matchId } = req.params;
     const { status } = req.query;
     
-    const orders = await Order.getUserOrders(req.user.id, matchId, status);
+    const orders = await Order.getUserOrders(req.userId, mongoose.isValidObjectId(matchId) ? new mongoose.Types.ObjectId(matchId) : matchId, status);
     
     res.json({
       success: true,
@@ -101,7 +154,7 @@ router.put('/:orderId/cancel', auth, async (req, res) => {
     
     const order = await Order.findOne({
       _id: orderId,
-      user: req.user.id,
+      user: req.userId,
       status: 'pending'
     });
 
@@ -137,7 +190,7 @@ router.put('/:orderId/tpsl', auth, async (req, res) => {
     
     const order = await Order.findOne({
       _id: orderId,
-      user: req.user.id,
+      user: req.userId,
       status: 'pending'
     });
 
@@ -199,7 +252,7 @@ async function createOrUpdatePosition(order, executionPrice, executionQuantity) 
   try {
     const existingPosition = await Position.findOne({
       user: order.user,
-      match: order.match,
+      match: mongoose.isValidObjectId(order.match) ? new mongoose.Types.ObjectId(order.match) : order.match,
       symbol: order.symbol,
       status: 'open'
     });
@@ -223,7 +276,7 @@ async function createOrUpdatePosition(order, executionPrice, executionQuantity) 
       // Create new position
       const position = new Position({
         user: order.user,
-        match: order.match,
+        match: mongoose.isValidObjectId(order.match) ? new mongoose.Types.ObjectId(order.match) : order.match,
         symbol: order.symbol,
         side: order.side === 'buy' ? 'long' : 'short',
         size: executionQuantity,
@@ -252,7 +305,7 @@ async function createTPSLOrders(order) {
     if (order.takeProfitPrice) {
       const tpOrder = new Order({
         user: order.user,
-        match: order.match,
+        match: mongoose.isValidObjectId(order.match) ? new mongoose.Types.ObjectId(order.match) : order.match,
         symbol: order.symbol,
         side: order.side === 'buy' ? 'sell' : 'buy',
         type: 'limit',
@@ -268,7 +321,7 @@ async function createTPSLOrders(order) {
     if (order.stopLossPrice) {
       const slOrder = new Order({
         user: order.user,
-        match: order.match,
+        match: mongoose.isValidObjectId(order.match) ? new mongoose.Types.ObjectId(order.match) : order.match,
         symbol: order.symbol,
         side: order.side === 'buy' ? 'sell' : 'buy',
         type: 'stop_limit',
@@ -299,5 +352,131 @@ function calculateLiquidationPrice(entryPrice, leverage, marginMode) {
     return entryPrice * (1 - (1/leverage) + maintenanceMarginRate);
   }
 }
+
+// Execute order
+router.post('/:orderId/execute', auth, async (req, res) => {
+  try {
+    const { orderId } = req.params
+    const { executionPrice, executionQuantity } = req.body
+    const userId = req.userId
+
+    console.log(`🎯 Executing order ${orderId} at price ${executionPrice}`)
+    console.log(`👤 User ID: ${userId}`)
+
+    // Find the order
+    const order = await Order.findById(orderId)
+    if (!order) {
+      console.log(`❌ Order not found: ${orderId}`)
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
+      })
+    }
+
+    console.log(`📋 Order found:`, {
+      id: order._id,
+      user: order.user.toString(),
+      status: order.status,
+      side: order.side,
+      type: order.type,
+      price: order.price
+    })
+
+    // Check if user owns the order
+    if (order.user.toString() !== userId) {
+      console.log(`❌ Unauthorized: Order user ${order.user.toString()} !== Request user ${userId}`)
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized to execute this order'
+      })
+    }
+
+    // Check if order can be executed
+    if (order.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'Order cannot be executed'
+      })
+    }
+
+    // Execute the order
+    const quantity = executionQuantity || order.quantity
+    await order.execute(executionPrice, quantity)
+
+    // Create or update position
+    await createOrUpdatePosition(order, executionPrice, quantity)
+
+    // Create TP/SL orders if specified
+    if (order.takeProfitPrice || order.stopLossPrice) {
+      await createTPSLOrders(order, executionPrice, quantity)
+    }
+
+    console.log(`✅ Order ${orderId} executed successfully`)
+
+    res.json({
+      success: true,
+      message: 'Order executed successfully',
+      order
+    })
+  } catch (error) {
+    console.error('Error executing order:', error)
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    })
+  }
+})
+
+// Cancel order
+router.post('/:orderId/cancel', auth, async (req, res) => {
+  try {
+    const { orderId } = req.params
+    const userId = req.userId
+
+    console.log(`📋 Cancelling order ${orderId} for user ${userId}`)
+
+    // Find the order
+    const order = await Order.findById(orderId)
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
+      })
+    }
+
+    // Check if user owns the order
+    if (order.user.toString() !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized to cancel this order'
+      })
+    }
+
+    // Check if order can be cancelled
+    if (order.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'Order cannot be cancelled'
+      })
+    }
+
+    // Cancel the order
+    await order.cancel()
+
+    console.log(`✅ Order ${orderId} cancelled successfully`)
+
+    res.json({
+      success: true,
+      message: 'Order cancelled successfully',
+      order
+    })
+  } catch (error) {
+    console.error('Error cancelling order:', error)
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    })
+  }
+})
 
 module.exports = router;

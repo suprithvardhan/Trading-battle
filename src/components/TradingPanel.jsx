@@ -22,7 +22,7 @@ const TradingPanel = ({ ticker, tickerData, userBalance, matchId, onOrderPlaced 
   // Futures trading states
   const [marginMode, setMarginMode] = useState('cross') // cross, isolated
   const [leverage, setLeverage] = useState(20) // 1x to 75x
-  const [orderType, setOrderType] = useState('limit') // limit, market, stop_limit
+  const [orderType, setOrderType] = useState('limit') // limit, market, stop_limit, stop_market
   const [side, setSide] = useState('buy') // buy, sell
   const [quantity, setQuantity] = useState('')
   const [price, setPrice] = useState('')
@@ -60,9 +60,15 @@ const TradingPanel = ({ ticker, tickerData, userBalance, matchId, onOrderPlaced 
   }
 
   const calculateLiquidationPrice = () => {
-    if (!quantity || !price) return { long: 0, short: 0 }
+    if (!quantity) return { long: 0, short: 0 }
     
-    const entryPrice = parseFloat(price)
+    // Use current market price for market orders, otherwise use entered price
+    const entryPrice = orderType === 'market' && tickerData?.price 
+      ? tickerData.price 
+      : parseFloat(price || 0)
+    
+    if (!entryPrice) return { long: 0, short: 0 }
+    
     const positionSize = parseFloat(quantity)
     const notionalValue = positionSize * entryPrice
     const margin = notionalValue / leverage
@@ -144,9 +150,15 @@ const TradingPanel = ({ ticker, tickerData, userBalance, matchId, onOrderPlaced 
   }
 
   const calculateProfitLoss = (targetPrice, type) => {
-    if (!price || !targetPrice) return '0.00'
+    if (!targetPrice) return '0.00'
     
-    const entryPrice = parseFloat(price)
+    // Use current market price for market orders, otherwise use entered price
+    const entryPrice = orderType === 'market' && tickerData?.price 
+      ? tickerData.price 
+      : parseFloat(price || 0)
+    
+    if (!entryPrice) return '0.00'
+    
     const target = parseFloat(targetPrice)
     
     if (type === 'profit') {
@@ -171,8 +183,23 @@ const TradingPanel = ({ ticker, tickerData, userBalance, matchId, onOrderPlaced 
       return
     }
 
+    if (orderType === 'market' && !tickerData?.price) {
+      setError('Market price not available, please try again')
+      return
+    }
+
     if (orderType === 'stop_limit' && (!stopPrice || parseFloat(stopPrice) <= 0)) {
       setError('Please enter a valid stop price')
+      return
+    }
+
+    if (orderType === 'stop_market' && (!price || parseFloat(price) <= 0)) {
+      setError('Please enter a valid stop price')
+      return
+    }
+
+    if (!matchId) {
+      setError('Match ID is required')
       return
     }
 
@@ -194,7 +221,7 @@ const TradingPanel = ({ ticker, tickerData, userBalance, matchId, onOrderPlaced 
         type: orderType,
         quantity: parseFloat(quantity),
         price: orderType === 'market' ? tickerData?.price : parseFloat(price),
-        stopPrice: orderType === 'stop_limit' ? parseFloat(stopPrice) : undefined,
+        stopPrice: (orderType === 'stop_limit' || orderType === 'stop_market') ? parseFloat(price) : undefined,
         marginMode,
         leverage,
         timeInForce,
@@ -203,7 +230,17 @@ const TradingPanel = ({ ticker, tickerData, userBalance, matchId, onOrderPlaced 
         stopLossPrice: tpslEnabled && stopLossPrice ? parseFloat(stopLossPrice) : undefined
       }
 
-      const response = await fetch('/api/orders', {
+      console.log('📊 Order data being sent:', orderData)
+      console.log('🔍 MatchId value:', matchId)
+      console.log('🔍 MatchId type:', typeof matchId)
+
+      console.log('📤 Sending request to:', 'http://localhost:5000/api/orders')
+      console.log('📤 Request headers:', {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      })
+      
+      const response = await fetch('http://localhost:5000/api/orders', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -211,8 +248,12 @@ const TradingPanel = ({ ticker, tickerData, userBalance, matchId, onOrderPlaced 
         },
         body: JSON.stringify(orderData)
       })
+      
+      console.log('📥 Response status:', response.status)
+      console.log('📥 Response headers:', response.headers)
 
       const result = await response.json()
+      console.log('📥 Response data:', result)
 
       if (result.success) {
         setSuccess('Futures order placed successfully!')
@@ -337,7 +378,8 @@ const TradingPanel = ({ ticker, tickerData, userBalance, matchId, onOrderPlaced 
           {[
             { value: 'limit', label: 'Limit' },
             { value: 'market', label: 'Market' },
-            { value: 'stop_limit', label: 'Stop Limit' }
+            { value: 'stop_limit', label: 'Stop Limit' },
+            { value: 'stop_market', label: 'Stop Market' }
           ].map((type) => (
             <button
               key={type.value}
@@ -358,38 +400,58 @@ const TradingPanel = ({ ticker, tickerData, userBalance, matchId, onOrderPlaced 
           ))}
         </div>
 
-        {/* Price Input */}
-        <div className="mb-2">
-          <label className={`block text-xs font-medium mb-1 transition-colors duration-300 ${
-            isDark ? 'text-gray-300' : 'text-gray-700'
-          }`}>
-            Price
-          </label>
-          <div className="flex space-x-1">
-            <input
-              type="number"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              placeholder="0.00000"
-              step="0.00001"
-              className={`flex-1 px-2 py-1.5 rounded-md border transition-colors duration-300 ${
-                isDark 
-                  ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' 
-                  : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'
-              }`}
-            />
-            <button 
-              onClick={() => setPrice(tickerData?.price?.toFixed(2) || '0.00')}
-              className={`px-2 py-1.5 rounded text-xs font-medium transition-colors duration-300 ${
-                isDark
-                  ? 'bg-gray-700 text-white hover:bg-gray-600'
-                  : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
-              }`}
-            >
-              {orderType === 'limit' ? 'Set' : 'USDT'}
-            </button>
+        {/* Price Input - Hidden for market orders */}
+        {orderType !== 'market' && (
+          <div className="mb-2">
+            <label className={`block text-xs font-medium mb-1 transition-colors duration-300 ${
+              isDark ? 'text-gray-300' : 'text-gray-700'
+            }`}>
+              {orderType === 'stop_market' ? 'Stop Price' : 'Price'}
+            </label>
+            <div className="flex space-x-1">
+              <input
+                type="number"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                placeholder="0.00000"
+                step="0.00001"
+                className={`flex-1 px-2 py-1.5 rounded-md border transition-colors duration-300 ${
+                  isDark 
+                    ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' 
+                    : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'
+                }`}
+              />
+              <button 
+                onClick={() => setPrice(tickerData?.price?.toFixed(2) || '0.00')}
+                className={`px-2 py-1.5 rounded text-xs font-medium transition-colors duration-300 ${
+                  isDark
+                    ? 'bg-gray-700 text-white hover:bg-gray-600'
+                    : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
+                }`}
+              >
+                {orderType === 'limit' ? 'Set' : orderType === 'stop_market' ? 'Set' : 'USDT'}
+              </button>
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Market Order Price Display */}
+        {orderType === 'market' && (
+          <div className="mb-2">
+            <label className={`block text-xs font-medium mb-1 transition-colors duration-300 ${
+              isDark ? 'text-gray-300' : 'text-gray-700'
+            }`}>
+              Market Price
+            </label>
+            <div className={`px-3 py-2 rounded-md border transition-colors duration-300 ${
+              isDark 
+                ? 'bg-gray-700 border-gray-600 text-white' 
+                : 'bg-gray-100 border-gray-300 text-gray-900'
+            }`}>
+              {tickerData?.price ? `$${tickerData.price.toFixed(2)}` : 'Loading...'}
+            </div>
+          </div>
+        )}
 
         {/* Size Input */}
         <div className="mb-2">
@@ -630,7 +692,7 @@ const TradingPanel = ({ ticker, tickerData, userBalance, matchId, onOrderPlaced 
                     <span className={`transition-colors duration-300 ${
                       isDark ? 'text-green-400' : 'text-green-600'
                     }`}>
-                      ${((parseFloat(takeProfitPrice) - parseFloat(price)) * parseFloat(quantity)).toFixed(2)} USDT
+                      ${((parseFloat(takeProfitPrice) - (orderType === 'market' && tickerData?.price ? tickerData.price : parseFloat(price || 0))) * parseFloat(quantity)).toFixed(2)} USDT
                     </span>
                   </div>
                 )}
@@ -688,7 +750,7 @@ const TradingPanel = ({ ticker, tickerData, userBalance, matchId, onOrderPlaced 
                     <span className={`transition-colors duration-300 ${
                       isDark ? 'text-red-400' : 'text-red-600'
                     }`}>
-                      ${((parseFloat(price) - parseFloat(stopLossPrice)) * parseFloat(quantity)).toFixed(2)} USDT
+                      ${(((orderType === 'market' && tickerData?.price ? tickerData.price : parseFloat(price || 0)) - parseFloat(stopLossPrice)) * parseFloat(quantity)).toFixed(2)} USDT
                     </span>
                   </div>
                 )}

@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 const Position = require('../models/Position');
 const Order = require('../models/Order');
 const auth = require('../middleware/auth');
@@ -10,7 +11,7 @@ router.get('/:matchId', auth, async (req, res) => {
     const { matchId } = req.params;
     const { status = 'open' } = req.query;
     
-    const positions = await Position.getUserPositions(req.user.id, matchId, status);
+    const positions = await Position.getUserPositions(req.user.id, mongoose.isValidObjectId(matchId) ? new mongoose.Types.ObjectId(matchId) : matchId, status);
     
     res.json({
       success: true,
@@ -188,7 +189,7 @@ async function createTPSLOrdersForPosition(position) {
     // Cancel existing TP/SL orders for this position
     await Order.updateMany({
       user: position.user,
-      match: position.match,
+      match: mongoose.isValidObjectId(position.match) ? new mongoose.Types.ObjectId(position.match) : position.match,
       symbol: position.symbol,
       status: 'pending'
     }, { status: 'cancelled' });
@@ -197,7 +198,7 @@ async function createTPSLOrdersForPosition(position) {
     if (position.takeProfitPrice) {
       const tpOrder = new Order({
         user: position.user,
-        match: position.match,
+        match: mongoose.isValidObjectId(position.match) ? new mongoose.Types.ObjectId(position.match) : position.match,
         symbol: position.symbol,
         side: position.side === 'long' ? 'sell' : 'buy',
         type: 'limit',
@@ -214,7 +215,7 @@ async function createTPSLOrdersForPosition(position) {
     if (position.stopLossPrice) {
       const slOrder = new Order({
         user: position.user,
-        match: position.match,
+        match: mongoose.isValidObjectId(position.match) ? new mongoose.Types.ObjectId(position.match) : position.match,
         symbol: position.symbol,
         side: position.side === 'long' ? 'sell' : 'buy',
         type: 'stop_limit',

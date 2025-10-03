@@ -24,7 +24,7 @@ const orderSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['limit', 'market', 'stop_limit'],
+    enum: ['limit', 'market', 'stop_limit', 'stop_market'],
     required: true
   },
   quantity: {
@@ -63,6 +63,8 @@ const orderSchema = new mongoose.Schema({
   filledAt: Date,
   filledPrice: Number,
   filledQuantity: Number,
+  // Store the market price when order was placed
+  marketPriceAtPlacement: Number,
   // TP/SL
   takeProfitPrice: Number,
   stopLossPrice: Number,
