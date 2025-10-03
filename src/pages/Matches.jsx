@@ -2,104 +2,183 @@ import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
+import axios from 'axios'
 import { 
-  Play, 
-  Clock, 
+  Trophy, 
   TrendingUp, 
   TrendingDown,
-  Target,
+  Clock,
   Users,
-  Search,
-  Filter,
+  BarChart3,
   Calendar,
-  DollarSign
+  Filter,
+  Search,
+  Play,
+  Pause,
+  CheckCircle,
+  XCircle
 } from 'lucide-react'
 
 const Matches = () => {
   const { user } = useAuth()
   const { isDark } = useTheme()
-  const [matches, setMatches] = useState([])
-  const [filter, setFilter] = useState('all')
-  const [isSearching, setIsSearching] = useState(false)
+  const [activeMatches, setActiveMatches] = useState([])
+  const [matchHistory, setMatchHistory] = useState([])
+  const [stats, setStats] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState('all') // all, wins, losses
+  const [searchQuery, setSearchQuery] = useState('')
 
+  // Fetch matches data
   useEffect(() => {
-    // Mock matches data
-    const mockMatches = [
-      {
-        id: 1,
-        opponent: 'CryptoKing_99',
-        result: 'win',
-        profit: 1250,
-        duration: '4m 32s',
-        timestamp: '2 hours ago',
-        asset: 'BTC/USD',
-        status: 'completed'
-      },
-      {
-        id: 2,
-        opponent: 'StockMaster_42',
-        result: 'loss',
-        profit: -800,
-        duration: '6m 15s',
-        timestamp: '1 day ago',
-        asset: 'AAPL',
-        status: 'completed'
-      },
-      {
-        id: 3,
-        opponent: 'TradingPro_88',
-        result: 'win',
-        profit: 2100,
-        duration: '3m 45s',
-        timestamp: '2 days ago',
-        asset: 'TSLA',
-        status: 'completed'
-      },
-      {
-        id: 4,
-        opponent: 'MarketWizard_77',
-        result: 'win',
-        profit: 1800,
-        duration: '5m 12s',
-        timestamp: '3 days ago',
-        asset: 'GOOGL',
-        status: 'completed'
-      },
-      {
-        id: 5,
-        opponent: 'FinanceGuru_55',
-        result: 'loss',
-        profit: -1200,
-        duration: '7m 30s',
-        timestamp: '1 week ago',
-        asset: 'MSFT',
-        status: 'completed'
+    const fetchMatches = async () => {
+      try {
+        setLoading(true)
+        const [activeRes, historyRes, statsRes] = await Promise.all([
+          axios.get('http://localhost:5000/api/matches/active'),
+          axios.get('http://localhost:5000/api/matches/history'),
+          axios.get('http://localhost:5000/api/dashboard/stats')
+        ])
+        
+        if (activeRes.data.success) {
+          setActiveMatches(activeRes.data.matches)
+        }
+        
+        if (historyRes.data.success) {
+          setMatchHistory(historyRes.data.matches)
+        }
+        
+        if (statsRes.data.success) {
+          setStats(statsRes.data.stats)
+        }
+      } catch (error) {
+        console.error('Error fetching matches:', error)
+        // Fallback to mock data
+        const mockActiveMatches = [
+          {
+            id: 1,
+            opponent: 'CryptoKing_99',
+            status: 'active',
+            duration: '2m 30s',
+            startTime: new Date(Date.now() - 150000),
+            userBalance: 12500,
+            opponentBalance: 11800
+          }
+        ]
+        
+        const mockHistory = [
+          {
+            id: 2,
+            opponent: 'CryptoMaster_42',
+            result: 'win',
+            profit: 1250,
+            duration: '4m 32s',
+            endTime: new Date(Date.now() - 7200000),
+            asset: 'BTC/USD'
+          },
+          {
+            id: 3,
+            opponent: 'CryptoPro_88',
+            result: 'loss',
+            profit: -800,
+            duration: '6m 15s',
+            endTime: new Date(Date.now() - 86400000),
+            asset: 'ETH/USD'
+          },
+          {
+            id: 4,
+            opponent: 'TradingWizard_77',
+            result: 'win',
+            profit: 2100,
+            duration: '3m 45s',
+            endTime: new Date(Date.now() - 172800000),
+            asset: 'BNB/USD'
+          }
+        ]
+        
+        setActiveMatches(mockActiveMatches)
+        setMatchHistory(mockHistory)
+        setStats({
+          totalMatches: 15,
+          wins: 10,
+          losses: 5,
+          winRate: 66.7,
+          totalProfit: 5500,
+          bestStreak: 5,
+          currentStreak: 2
+        })
+      } finally {
+        setLoading(false)
       }
-    ]
-    setMatches(mockMatches)
+    }
+
+    fetchMatches()
   }, [])
 
-  const handleStartMatch = () => {
-    setIsSearching(true)
-    // Simulate matchmaking
-    setTimeout(() => {
-      setIsSearching(false)
-    }, 3000)
-  }
-
-  const filteredMatches = matches.filter(match => {
-    if (filter === 'all') return true
-    if (filter === 'wins') return match.result === 'win'
-    if (filter === 'losses') return match.result === 'loss'
-    return true
+  const filteredHistory = matchHistory.filter(match => {
+    const matchesSearch = match.opponent.toLowerCase().includes(searchQuery.toLowerCase())
+    const matchesFilter = filter === 'all' || match.result === filter
+    return matchesSearch && matchesFilter
   })
 
-  const winCount = matches.filter(match => match.result === 'win').length
-  const lossCount = matches.filter(match => match.result === 'loss').length
-  const totalProfit = matches.reduce((sum, match) => sum + match.profit, 0)
+  const getResultIcon = (result) => {
+    switch (result) {
+      case 'win':
+        return <CheckCircle className="w-5 h-5 text-green-500" />
+      case 'loss':
+        return <XCircle className="w-5 h-5 text-red-500" />
+      default:
+        return <Clock className="w-5 h-5 text-gray-500" />
+    }
+  }
+
+  const getResultColor = (result) => {
+    switch (result) {
+      case 'win':
+        return 'text-green-500'
+      case 'loss':
+        return 'text-red-500'
+      default:
+        return 'text-gray-500'
+    }
+  }
+
+  const formatDuration = (duration) => {
+    if (typeof duration === 'string') return duration
+    const minutes = Math.floor(duration / 60)
+    const seconds = duration % 60
+    return `${minutes}m ${seconds}s`
+  }
+
+  const formatTimeAgo = (date) => {
+    const now = new Date()
+    const diff = now - new Date(date)
+    const minutes = Math.floor(diff / 60000)
+    const hours = Math.floor(diff / 3600000)
+    const days = Math.floor(diff / 86400000)
+    
+    if (days > 0) return `${days} day${days > 1 ? 's' : ''} ago`
+    if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''} ago`
+    return `${minutes} minute${minutes > 1 ? 's' : ''} ago`
+  }
+
+  if (loading) {
+    return (
+      <div className={`min-h-screen flex items-center justify-center ${
+        isDark ? 'bg-gray-900' : 'bg-white'
+      }`}>
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className={`text-lg ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            Loading matches...
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
@@ -108,267 +187,308 @@ const Matches = () => {
         className="flex justify-between items-center"
       >
         <div>
-          <h1 className={`text-3xl font-bold transition-colors duration-300 ${
-            isDark ? 'text-white' : 'text-slate-900'
+          <h1 className={`text-2xl font-bold transition-colors duration-300 ${
+            isDark ? 'text-white' : 'text-gray-900'
           }`}>
-            Matches
+            Matches & Statistics
           </h1>
-          <p className={`mt-2 transition-colors duration-300 ${
-            isDark ? 'text-slate-300' : 'text-slate-600'
+          <p className={`text-sm transition-colors duration-300 ${
+            isDark ? 'text-gray-300' : 'text-gray-600'
           }`}>
-            Track your trading battles and performance
+            Track your trading performance and match history
           </p>
         </div>
       </motion.div>
 
-      {/* Stats Cards */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 0.1 }}
-        className="grid grid-cols-1 md:grid-cols-4 gap-6"
-      >
-        <div className={`p-6 rounded-2xl border transition-colors duration-300 ${
-          isDark 
-            ? 'bg-slate-800 border-slate-700' 
-            : 'bg-white border-slate-200'
-        }`}>
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-green-500/20 rounded-xl">
-              <Target className="w-6 h-6 text-green-500" />
-            </div>
-            <span className={`text-sm font-medium transition-colors duration-300 ${
-              isDark ? 'text-slate-400' : 'text-slate-500'
-            }`}>
-              Total Matches
-            </span>
-          </div>
-          <div className={`text-3xl font-bold transition-colors duration-300 ${
-            isDark ? 'text-white' : 'text-slate-900'
+      {/* Stats Overview */}
+      {stats && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.1 }}
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"
+        >
+          <div className={`p-4 rounded-lg border transition-colors duration-300 ${
+            isDark 
+              ? 'bg-gray-800 border-gray-700' 
+              : 'bg-white border-gray-200'
           }`}>
-            {matches.length}
-          </div>
-        </div>
-
-        <div className={`p-6 rounded-2xl border transition-colors duration-300 ${
-          isDark 
-            ? 'bg-slate-800 border-slate-700' 
-            : 'bg-white border-slate-200'
-        }`}>
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-blue-500/20 rounded-xl">
-              <TrendingUp className="w-6 h-6 text-blue-500" />
-            </div>
-            <span className={`text-sm font-medium transition-colors duration-300 ${
-              isDark ? 'text-slate-400' : 'text-slate-500'
-            }`}>
-              Wins
-            </span>
-          </div>
-          <div className={`text-3xl font-bold transition-colors duration-300 ${
-            isDark ? 'text-white' : 'text-slate-900'
-          }`}>
-            {winCount}
-          </div>
-        </div>
-
-        <div className={`p-6 rounded-2xl border transition-colors duration-300 ${
-          isDark 
-            ? 'bg-slate-800 border-slate-700' 
-            : 'bg-white border-slate-200'
-        }`}>
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-red-500/20 rounded-xl">
-              <TrendingDown className="w-6 h-6 text-red-500" />
-            </div>
-            <span className={`text-sm font-medium transition-colors duration-300 ${
-              isDark ? 'text-slate-400' : 'text-slate-500'
-            }`}>
-              Losses
-            </span>
-          </div>
-          <div className={`text-3xl font-bold transition-colors duration-300 ${
-            isDark ? 'text-white' : 'text-slate-900'
-          }`}>
-            {lossCount}
-          </div>
-        </div>
-
-        <div className={`p-6 rounded-2xl border transition-colors duration-300 ${
-          isDark 
-            ? 'bg-slate-800 border-slate-700' 
-            : 'bg-white border-slate-200'
-        }`}>
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-purple-500/20 rounded-xl">
-              <DollarSign className="w-6 h-6 text-purple-500" />
-            </div>
-            <span className={`text-sm font-medium transition-colors duration-300 ${
-              isDark ? 'text-slate-400' : 'text-slate-500'
-            }`}>
-              Total P&L
-            </span>
-          </div>
-          <div className={`text-3xl font-bold transition-colors duration-300 ${
-            totalProfit >= 0 ? 'text-green-500' : 'text-red-500'
-          }`}>
-            {totalProfit >= 0 ? '+' : ''}${totalProfit.toLocaleString()}
-          </div>
-        </div>
-      </motion.div>
-
-      {/* Start New Match */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 0.2 }}
-        className={`p-8 rounded-2xl border transition-colors duration-300 ${
-          isDark 
-            ? 'bg-slate-800 border-slate-700' 
-            : 'bg-white border-slate-200'
-        }`}
-      >
-        <div className="text-center">
-          <div className="w-20 h-20 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full mx-auto mb-6 flex items-center justify-center">
-            <Play className="w-10 h-10 text-white" />
-          </div>
-          <h2 className={`text-2xl font-bold mb-4 transition-colors duration-300 ${
-            isDark ? 'text-white' : 'text-slate-900'
-          }`}>
-            Ready for Another Battle?
-          </h2>
-          <p className={`mb-8 transition-colors duration-300 ${
-            isDark ? 'text-slate-300' : 'text-slate-600'
-          }`}>
-            Challenge another trader and prove your skills
-          </p>
-          
-          {isSearching ? (
-            <div className="space-y-4">
-              <div className="flex items-center justify-center space-x-2">
-                <div className="w-4 h-4 bg-blue-500 rounded-full animate-pulse"></div>
-                <div className="w-4 h-4 bg-blue-500 rounded-full animate-pulse delay-100"></div>
-                <div className="w-4 h-4 bg-blue-500 rounded-full animate-pulse delay-200"></div>
+            <div className="flex items-center space-x-3">
+              <BarChart3 className="w-8 h-8 text-blue-500" />
+              <div>
+                <div className={`text-2xl font-bold transition-colors duration-300 ${
+                  isDark ? 'text-white' : 'text-gray-900'
+                }`}>
+                  {stats.totalMatches}
+                </div>
+                <div className={`text-sm transition-colors duration-300 ${
+                  isDark ? 'text-gray-300' : 'text-gray-600'
+                }`}>
+                  Total Matches
+                </div>
               </div>
-              <p className={`text-sm transition-colors duration-300 ${
-                isDark ? 'text-slate-400' : 'text-slate-500'
-              }`}>
-                Searching for opponents...
-              </p>
             </div>
-          ) : (
-            <button
-              onClick={handleStartMatch}
-              className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-4 rounded-xl text-lg font-semibold hover:from-blue-700 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-blue-500/25 flex items-center space-x-3 mx-auto"
-            >
-              <Search className="w-5 h-5" />
-              <span>Find Match</span>
-            </button>
-          )}
-        </div>
-      </motion.div>
+          </div>
+
+          <div className={`p-4 rounded-lg border transition-colors duration-300 ${
+            isDark 
+              ? 'bg-gray-800 border-gray-700' 
+              : 'bg-white border-gray-200'
+          }`}>
+            <div className="flex items-center space-x-3">
+              <Trophy className="w-8 h-8 text-green-500" />
+              <div>
+                <div className={`text-2xl font-bold transition-colors duration-300 ${
+                  isDark ? 'text-white' : 'text-gray-900'
+                }`}>
+                  {stats.wins}
+                </div>
+                <div className={`text-sm transition-colors duration-300 ${
+                  isDark ? 'text-gray-300' : 'text-gray-600'
+                }`}>
+                  Wins
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className={`p-4 rounded-lg border transition-colors duration-300 ${
+            isDark 
+              ? 'bg-gray-800 border-gray-700' 
+              : 'bg-white border-gray-200'
+          }`}>
+            <div className="flex items-center space-x-3">
+              <TrendingUp className="w-8 h-8 text-purple-500" />
+              <div>
+                <div className={`text-2xl font-bold transition-colors duration-300 ${
+                  isDark ? 'text-white' : 'text-gray-900'
+                }`}>
+                  {stats.winRate}%
+                </div>
+                <div className={`text-sm transition-colors duration-300 ${
+                  isDark ? 'text-gray-300' : 'text-gray-600'
+                }`}>
+                  Win Rate
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className={`p-4 rounded-lg border transition-colors duration-300 ${
+            isDark 
+              ? 'bg-gray-800 border-gray-700' 
+              : 'bg-white border-gray-200'
+          }`}>
+            <div className="flex items-center space-x-3">
+              <TrendingUp className="w-8 h-8 text-yellow-500" />
+              <div>
+                <div className={`text-2xl font-bold transition-colors duration-300 ${
+                  isDark ? 'text-white' : 'text-gray-900'
+                }`}>
+                  {stats.currentStreak}
+                </div>
+                <div className={`text-sm transition-colors duration-300 ${
+                  isDark ? 'text-gray-300' : 'text-gray-600'
+                }`}>
+                  Current Streak
+                </div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Active Matches */}
+      {activeMatches.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.2 }}
+          className={`p-6 rounded-lg border transition-colors duration-300 ${
+            isDark 
+              ? 'bg-gray-800 border-gray-700' 
+              : 'bg-white border-gray-200'
+          }`}
+        >
+          <h2 className={`text-lg font-semibold mb-4 transition-colors duration-300 ${
+            isDark ? 'text-white' : 'text-gray-900'
+          }`}>
+            Active Matches
+          </h2>
+          
+          <div className="space-y-4">
+            {activeMatches.map((match) => (
+              <div key={match.id} className={`p-4 rounded-lg border transition-colors duration-300 ${
+                isDark 
+                  ? 'bg-gray-700 border-gray-600' 
+                  : 'bg-gray-50 border-gray-200'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-4">
+                    <div className="flex items-center space-x-2">
+                      <Play className="w-5 h-5 text-green-500" />
+                      <span className={`font-medium transition-colors duration-300 ${
+                        isDark ? 'text-white' : 'text-gray-900'
+                      }`}>
+                        vs {match.opponent}
+                      </span>
+                    </div>
+                    <div className={`text-sm transition-colors duration-300 ${
+                      isDark ? 'text-gray-300' : 'text-gray-600'
+                    }`}>
+                      {formatDuration(match.duration)}
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center space-x-6">
+                    <div className="text-center">
+                      <div className={`text-sm font-medium transition-colors duration-300 ${
+                        isDark ? 'text-white' : 'text-gray-900'
+                      }`}>
+                        Your Balance
+                      </div>
+                      <div className="text-green-500 font-bold">
+                        ${match.userBalance?.toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="text-center">
+                      <div className={`text-sm font-medium transition-colors duration-300 ${
+                        isDark ? 'text-white' : 'text-gray-900'
+                      }`}>
+                        Opponent
+                      </div>
+                      <div className="text-blue-500 font-bold">
+                        ${match.opponentBalance?.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+      )}
 
       {/* Match History */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, delay: 0.3 }}
-        className={`rounded-2xl border transition-colors duration-300 ${
+        className={`p-6 rounded-lg border transition-colors duration-300 ${
           isDark 
-            ? 'bg-slate-800 border-slate-700' 
-            : 'bg-white border-slate-200'
+            ? 'bg-gray-800 border-gray-700' 
+            : 'bg-white border-gray-200'
         }`}
       >
-        {/* Header */}
-        <div className={`px-6 py-4 border-b transition-colors duration-300 ${
-          isDark ? 'border-slate-700' : 'border-slate-200'
-        }`}>
-          <div className="flex items-center justify-between">
-            <h3 className={`text-lg font-semibold transition-colors duration-300 ${
-              isDark ? 'text-white' : 'text-slate-900'
-            }`}>
-              Match History
-            </h3>
-            <div className="flex space-x-2">
-              {['all', 'wins', 'losses'].map((filterType) => (
-                <button
-                  key={filterType}
-                  onClick={() => setFilter(filterType)}
-                  className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors duration-300 ${
-                    filter === filterType
-                      ? 'bg-blue-600 text-white'
-                      : isDark
-                        ? 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  {filterType.charAt(0).toUpperCase() + filterType.slice(1)}
-                </button>
-              ))}
+        <div className="flex justify-between items-center mb-4">
+          <h2 className={`text-lg font-semibold transition-colors duration-300 ${
+            isDark ? 'text-white' : 'text-gray-900'
+          }`}>
+            Match History
+          </h2>
+          
+          <div className="flex items-center space-x-4">
+            {/* Search */}
+            <div className="relative">
+              <Search className={`absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 transition-colors duration-300 ${
+                isDark ? 'text-gray-400' : 'text-gray-500'
+              }`} />
+              <input
+                type="text"
+                placeholder="Search opponents..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={`pl-10 pr-4 py-2 rounded-lg border transition-colors duration-300 ${
+                  isDark 
+                    ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' 
+                    : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'
+                }`}
+              />
             </div>
+            
+            {/* Filter */}
+            <select
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              className={`px-3 py-2 rounded-lg border transition-colors duration-300 ${
+                isDark 
+                  ? 'bg-gray-700 border-gray-600 text-white' 
+                  : 'bg-white border-gray-300 text-gray-900'
+              }`}
+            >
+              <option value="all">All Matches</option>
+              <option value="win">Wins Only</option>
+              <option value="loss">Losses Only</option>
+            </select>
           </div>
         </div>
-
-        {/* Match List */}
-        <div className="divide-y divide-slate-200 dark:divide-slate-700">
-          {filteredMatches.map((match, index) => (
+        
+        <div className="space-y-3">
+          {filteredHistory.map((match, index) => (
             <motion.div
               key={match.id}
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.3, delay: index * 0.05 }}
-              className={`px-6 py-4 hover:transition-colors duration-300 ${
+              className={`p-4 rounded-lg border transition-colors duration-300 ${
                 isDark 
-                  ? 'hover:bg-slate-700' 
-                  : 'hover:bg-slate-50'
+                  ? 'bg-gray-700 border-gray-600' 
+                  : 'bg-gray-50 border-gray-200'
               }`}
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
-                  <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                    match.result === 'win' 
-                      ? 'bg-green-500/20' 
-                      : 'bg-red-500/20'
-                  }`}>
-                    {match.result === 'win' ? (
-                      <TrendingUp className="w-6 h-6 text-green-500" />
-                    ) : (
-                      <TrendingDown className="w-6 h-6 text-red-500" />
-                    )}
-                  </div>
+                  {getResultIcon(match.result)}
                   <div>
                     <div className={`font-medium transition-colors duration-300 ${
-                      isDark ? 'text-white' : 'text-slate-900'
+                      isDark ? 'text-white' : 'text-gray-900'
                     }`}>
                       vs {match.opponent}
                     </div>
                     <div className={`text-sm transition-colors duration-300 ${
-                      isDark ? 'text-slate-400' : 'text-slate-500'
+                      isDark ? 'text-gray-300' : 'text-gray-600'
                     }`}>
-                      {match.asset} • {match.timestamp}
+                      {match.asset} • {formatDuration(match.duration)}
                     </div>
                   </div>
                 </div>
                 
                 <div className="flex items-center space-x-6">
-                  <div className="text-right">
-                    <div className={`font-semibold ${
-                      match.result === 'win' ? 'text-green-500' : 'text-red-500'
-                    }`}>
-                      {match.result === 'win' ? '+' : ''}${match.profit}
-                    </div>
+                  <div className="text-center">
                     <div className={`text-sm transition-colors duration-300 ${
-                      isDark ? 'text-slate-400' : 'text-slate-500'
+                      isDark ? 'text-gray-300' : 'text-gray-600'
                     }`}>
-                      {match.duration}
+                      Result
+                    </div>
+                    <div className={`font-bold ${getResultColor(match.result)}`}>
+                      {match.result === 'win' ? 'Won' : 'Lost'}
                     </div>
                   </div>
-                  <div className={`px-3 py-1 rounded-full text-xs font-medium ${
-                    match.result === 'win'
-                      ? 'bg-green-500/20 text-green-500'
-                      : 'bg-red-500/20 text-red-500'
-                  }`}>
-                    {match.result === 'win' ? 'Victory' : 'Defeat'}
+                  
+                  <div className="text-center">
+                    <div className={`text-sm transition-colors duration-300 ${
+                      isDark ? 'text-gray-300' : 'text-gray-600'
+                    }`}>
+                      P&L
+                    </div>
+                    <div className={`font-bold ${
+                      match.profit > 0 ? 'text-green-500' : 'text-red-500'
+                    }`}>
+                      {match.profit > 0 ? '+' : ''}${match.profit}
+                    </div>
+                  </div>
+                  
+                  <div className="text-center">
+                    <div className={`text-sm transition-colors duration-300 ${
+                      isDark ? 'text-gray-300' : 'text-gray-600'
+                    }`}>
+                      Time
+                    </div>
+                    <div className={`text-sm transition-colors duration-300 ${
+                      isDark ? 'text-gray-300' : 'text-gray-600'
+                    }`}>
+                      {formatTimeAgo(match.endTime)}
+                    </div>
                   </div>
                 </div>
               </div>

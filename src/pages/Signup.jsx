@@ -15,7 +15,7 @@ const Signup = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [formError, setFormError] = useState('')
   const { isDark } = useTheme()
-  const { signup, loading, error } = useAuth()
+  const { register, loading, error } = useAuth()
   const navigate = useNavigate()
 
   const validateForm = () => {
@@ -41,7 +41,7 @@ const Signup = () => {
       return
     }
 
-    const result = await signup(username, email, password)
+    const result = await register(username, email, password)
     if (result.success) {
       navigate('/dashboard')
     } else {

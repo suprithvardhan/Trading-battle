@@ -2,6 +2,10 @@ const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
 const User = require('../models/User');
+const Match = require('../models/Match');
+const Trade = require('../models/Trade');
+const Leaderboard = require('../models/Leaderboard');
+const Asset = require('../models/Asset');
 
 // @route   GET /api/dashboard/stats
 // @desc    Get user dashboard statistics
@@ -13,19 +17,52 @@ router.get('/stats', auth, async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Calculate additional stats
-    const totalMatches = user.wins + user.losses;
-    const winRate = totalMatches > 0 ? (user.wins / totalMatches) * 100 : 0;
+    // Get user's ranking
+    const userRank = await Leaderboard.findOne({ user: req.user.id, period: 'all-time' });
     
+    // Get today's stats
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const todayMatches = await Match.find({
+      'players.user': req.user.id,
+      status: 'completed',
+      endTime: { $gte: today }
+    });
+
+    const todayTrades = await Trade.find({
+      user: req.user.id,
+      status: 'filled',
+      executedAt: { $gte: today }
+    });
+
+    // Calculate today's P&L
+    const todayPnL = todayTrades.reduce((total, trade) => {
+      return total + (trade.type === 'buy' ? -trade.totalValue : trade.totalValue);
+    }, 0);
+
+    // Get active matches
+    const activeMatches = await Match.find({
+      'players.user': req.user.id,
+      status: { $in: ['waiting', 'active'] }
+    }).countDocuments();
+
     const stats = {
       balance: user.balance,
-      wins: user.wins,
-      losses: user.losses,
-      totalMatches: totalMatches,
-      winRate: Math.round(winRate * 10) / 10, // Round to 1 decimal
+      wins: user.stats.wins,
+      losses: user.stats.losses,
+      totalMatches: user.stats.totalMatches,
+      winRate: user.stats.winRate,
       tier: user.tier,
       badges: user.badges || [],
-      joinDate: user.joinDate
+      joinDate: user.createdAt,
+      rank: userRank ? userRank.rank : null,
+      todayPnL: Math.round(todayPnL * 100) / 100,
+      todayTrades: todayTrades.length,
+      activeMatches,
+      currentStreak: user.stats.currentStreak,
+      bestStreak: user.stats.bestStreak,
+      totalProfit: user.stats.totalProfit || 0
     };
 
     res.json({ success: true, stats });
@@ -40,38 +77,35 @@ router.get('/stats', auth, async (req, res) => {
 // @access  Private
 router.get('/recent-matches', auth, async (req, res) => {
   try {
-    // For now, return mock data. In a real app, you'd have a Match model
-    const mockMatches = [
-      {
-        id: 1,
-        opponent: 'CryptoKing_99',
-        result: 'win',
-        profit: 1250,
-        duration: '4m 32s',
-        timestamp: '2 hours ago',
-        asset: 'BTC/USD'
-      },
-      {
-        id: 2,
-        opponent: 'StockMaster_42',
-        result: 'loss',
-        profit: -800,
-        duration: '6m 15s',
-        timestamp: '1 day ago',
-        asset: 'AAPL'
-      },
-      {
-        id: 3,
-        opponent: 'TradingPro_88',
-        result: 'win',
-        profit: 2100,
-        duration: '3m 45s',
-        timestamp: '2 days ago',
-        asset: 'TSLA'
-      }
-    ];
+    const { limit = 10 } = req.query;
 
-    res.json({ success: true, matches: mockMatches });
+    const recentMatches = await Match.find({
+      'players.user': req.user.id,
+      status: 'completed'
+    })
+    .populate('players.user', 'username')
+    .populate('winner', 'username')
+    .sort({ endTime: -1 })
+    .limit(parseInt(limit));
+
+    const formattedMatches = recentMatches.map(match => {
+      const userPlayer = match.players.find(p => p.user.toString() === req.user.id);
+      const opponent = match.players.find(p => p.user.toString() !== req.user.id);
+      const isWinner = match.winner && match.winner.toString() === req.user.id;
+      
+      return {
+        id: match._id,
+        opponent: opponent ? opponent.username : 'Unknown',
+        result: isWinner ? 'win' : 'loss',
+        profit: userPlayer ? userPlayer.profit : 0,
+        duration: match.durationInMinutes ? `${match.durationInMinutes}m` : '0m',
+        timestamp: match.endTime,
+        asset: 'Mixed', // Could be enhanced to show most traded asset
+        matchType: match.matchType
+      };
+    });
+
+    res.json({ success: true, matches: formattedMatches });
   } catch (err) {
     console.error(err.message);
     res.status(500).json({ success: false, message: 'Server error' });

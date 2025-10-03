@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
-import axios from 'axios'
+import api from '../utils/api'
+import MatchmakingOverlay from '../components/MatchmakingOverlay'
 import { 
   TrendingUp, 
   Users, 
@@ -28,7 +29,7 @@ const Dashboard = () => {
   const { isDark } = useTheme()
   const [recentMatches, setRecentMatches] = useState([])
   const [isSearching, setIsSearching] = useState(false)
-  const [showMatchModal, setShowMatchModal] = useState(false)
+  const [showMatchmaking, setShowMatchmaking] = useState(false)
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -38,12 +39,17 @@ const Dashboard = () => {
       try {
         setLoading(true)
         const [statsRes, matchesRes] = await Promise.all([
-          axios.get('http://localhost:5000/api/dashboard/stats'),
-          axios.get('http://localhost:5000/api/dashboard/recent-matches')
+          api.get('/dashboard/stats'),
+          api.get('/dashboard/recent-matches')
         ])
         
-        setStats(statsRes.data.stats)
-        setRecentMatches(matchesRes.data.matches)
+        if (statsRes.data.success) {
+          setStats(statsRes.data.stats)
+        }
+        
+        if (matchesRes.data.success) {
+          setRecentMatches(matchesRes.data.matches)
+        }
       } catch (error) {
         console.error('Error fetching dashboard data:', error)
         // Fallback to mock data
@@ -59,21 +65,21 @@ const Dashboard = () => {
           },
           {
             id: 2,
-            opponent: 'StockMaster_42',
+            opponent: 'CryptoMaster_42',
             result: 'loss',
             profit: -800,
             duration: '6m 15s',
             timestamp: '1 day ago',
-            asset: 'AAPL'
+            asset: 'ETH/USD'
           },
           {
             id: 3,
-            opponent: 'TradingPro_88',
+            opponent: 'CryptoPro_88',
             result: 'win',
             profit: 2100,
             duration: '3m 45s',
             timestamp: '2 days ago',
-            asset: 'TSLA'
+            asset: 'BNB/USD'
           }
         ]
         setRecentMatches(mockMatches)
@@ -85,20 +91,18 @@ const Dashboard = () => {
     fetchDashboardData()
   }, [])
 
-  const handleStartMatch = async () => {
-    setIsSearching(true)
-    try {
-      const response = await axios.post('http://localhost:5000/api/dashboard/start-match')
-      if (response.data.success) {
-        setTimeout(() => {
-          setIsSearching(false)
-          setShowMatchModal(true)
-        }, 2000)
-      }
-    } catch (error) {
-      console.error('Error starting match:', error)
-      setIsSearching(false)
-    }
+  const handleStartMatch = () => {
+    setShowMatchmaking(true)
+  }
+
+  const handleMatchFound = (match) => {
+    console.log('Match found in Dashboard:', match)
+    setShowMatchmaking(false)
+    window.location.href = `/match?matchId=${match.id}`
+  }
+
+  const handleCloseMatchmaking = () => {
+    setShowMatchmaking(false)
   }
 
   if (loading) {
@@ -427,6 +431,13 @@ const Dashboard = () => {
           </div>
         </div>
       </motion.div>
+
+      {/* Matchmaking Overlay */}
+      <MatchmakingOverlay
+        isOpen={showMatchmaking}
+        onClose={handleCloseMatchmaking}
+        onMatchFound={handleMatchFound}
+      />
     </div>
   )
 }

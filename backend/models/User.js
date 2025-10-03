@@ -84,12 +84,14 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
+// Indexes are already defined in the schema fields with unique: true
+
 // Hash password before saving
 userSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
   
   try {
-    const salt = await bcrypt.genSalt(12);
+    const salt = await bcrypt.genSalt(10); // Reduced from 12 to 10 for better performance
     this.password = await bcrypt.hash(this.password, salt);
     next();
   } catch (error) {

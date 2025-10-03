@@ -19,6 +19,9 @@ import { AuthProvider, useAuth } from './contexts/AuthContext'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
 import DashboardLayout from './pages/DashboardLayout'
+import MatchPage from './pages/MatchPage'
+import DemoMatch from './pages/DemoMatch'
+import DemoChart from './pages/DemoChart'
 import ProtectedRoute from './components/ProtectedRoute'
 
 const MainApp = () => {
@@ -68,8 +71,8 @@ const MainApp = () => {
                 className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors font-medium"
               >
                 Get Started
-              </a>
-            </div>
+        </a>
+      </div>
           </div>
         </div>
       </nav>
@@ -147,15 +150,31 @@ const MainApp = () => {
               <ArrowRight className={`w-5 h-5 transition-transform duration-300 ${isHovered ? 'translate-x-1' : ''}`} />
             </a>
             
-            <button className={`group px-8 py-4 rounded-lg text-lg font-semibold border transition-all duration-300 hover:shadow-lg flex items-center space-x-3 ${
-              isDark 
-                ? 'bg-gray-800 text-white border-gray-600 hover:border-gray-500' 
-                : 'bg-white text-gray-900 border-gray-200 hover:border-gray-300'
-            }`}>
+            <a 
+              href="/demomatch"
+              className={`group px-8 py-4 rounded-lg text-lg font-semibold border transition-all duration-300 hover:shadow-lg flex items-center space-x-3 ${
+                isDark 
+                  ? 'bg-gray-800 text-white border-gray-600 hover:border-gray-500' 
+                  : 'bg-white text-gray-900 border-gray-200 hover:border-gray-300'
+              }`}
+            >
               <BarChart3 className="w-5 h-5" />
               <span>Watch Demo</span>
               <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-            </button>
+            </a>
+            
+            <a 
+              href="/demochart"
+              className={`group px-8 py-4 rounded-lg text-lg font-semibold border transition-all duration-300 hover:shadow-lg flex items-center space-x-3 ${
+                isDark 
+                  ? 'bg-gray-800 text-white border-gray-600 hover:border-gray-500' 
+                  : 'bg-white text-gray-900 border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <TrendingUp className="w-5 h-5" />
+              <span>Test Charts</span>
+              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+            </a>
           </motion.div>
 
           {/* Trust Indicators */}
@@ -319,7 +338,7 @@ const MainApp = () => {
                         <button className="group bg-red-500 text-white py-3 px-6 rounded-lg font-semibold hover:bg-red-600 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-red-500/25 flex items-center justify-center space-x-2">
                           <TrendingUp className="w-5 h-5 rotate-180" />
                           <span>Sell</span>
-                        </button>
+        </button>
                       </div>
                     </div>
                   </div>
@@ -448,8 +467,8 @@ const MainApp = () => {
               isDark ? 'text-gray-300' : 'text-gray-600'
             }`}>
               Get started in minutes
-            </p>
-          </div>
+        </p>
+      </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             {[
@@ -524,6 +543,13 @@ function App() {
                 <DashboardLayout />
               </ProtectedRoute>
             } />
+            <Route path="/match" element={
+              <ProtectedRoute>
+                <MatchPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/demomatch" element={<DemoMatch />} />
+            <Route path="/demochart" element={<DemoChart />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </AuthProvider>
