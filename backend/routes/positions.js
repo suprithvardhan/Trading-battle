@@ -47,15 +47,78 @@ router.post('/:positionId/close', auth, async (req, res) => {
     }
 
     const closePrice = price || position.markPrice;
+    console.log(`🔄 Closing position ${positionId} at price ${closePrice}`);
+    console.log(`📊 Position details:`, {
+      side: position.side,
+      size: position.size,
+      entryPrice: position.entryPrice,
+      closePrice: closePrice
+    });
+    
     await position.close(closePrice);
+    
+    console.log(`💰 Calculated PnL: ${position.unrealizedPnL}`);
 
-    // Update user balance
-    await updateUserBalance(req.user.id, position.unrealizedPnL);
+    // Calculate total return (margin + PnL)
+    const totalReturn = position.margin + position.unrealizedPnL;
+    console.log(`💰 Total return calculation: Margin=${position.margin} + PnL=${position.unrealizedPnL} = ${totalReturn}`);
+
+    // Update user balance with total return
+    await updateUserBalance(req.user.id, totalReturn, position.match);
+
+    // Update match's realizedPnL tracking for this player
+    const Match = require('../models/Match');
+    await Match.findByIdAndUpdate(position.match, {
+      $inc: { 
+        'players.$[elem].realizedPnL': position.unrealizedPnL 
+      }
+    }, {
+      arrayFilters: [{ 'elem.user': position.user }]
+    });
+
+    console.log(`💰 Updated match realizedPnL: +${position.unrealizedPnL}`);
+
+    // Create a market order record for the position close
+    const Order = require('../models/Order');
+    const closeOrder = new Order({
+      user: position.user,
+      match: position.match,
+      symbol: position.symbol,
+      side: position.side === 'long' ? 'sell' : 'buy', // Opposite side to close position
+      type: 'market',
+      quantity: position.size,
+      price: closePrice, // Market price at close
+      marginMode: position.marginMode,
+      leverage: position.leverage,
+      status: 'filled',
+      filledAt: new Date(),
+      filledPrice: closePrice,
+      filledQuantity: position.size,
+      orderType: 'position_close',
+      isPositionClose: true, // Flag to identify position close orders
+      originalPositionId: position._id
+    });
+
+    await closeOrder.save();
+    console.log(`📝 Created market order for position close: ${position.side === 'long' ? 'SELL' : 'BUY'} ${position.size} ${position.symbol} at ${closePrice}`);
 
     res.json({
       success: true,
       message: 'Position closed successfully',
-      position
+      position: {
+        ...position.toObject(),
+        realizedPnL: position.unrealizedPnL,
+        totalReturn: totalReturn
+      },
+      closeOrder: {
+        _id: closeOrder._id,
+        side: closeOrder.side,
+        type: closeOrder.type,
+        quantity: closeOrder.quantity,
+        price: closeOrder.price,
+        status: closeOrder.status,
+        filledAt: closeOrder.filledAt
+      }
     });
   } catch (error) {
     console.error('Error closing position:', error);
@@ -235,14 +298,28 @@ async function createTPSLOrdersForPosition(position) {
 }
 
 // Update user balance
-async function updateUserBalance(userId, pnl) {
+async function updateUserBalance(userId, pnl, matchId) {
   try {
     const User = require('../models/User');
-    const user = await User.findById(userId);
-    if (user) {
-      user.currentBalance += pnl;
-      await user.save();
+    const Match = require('../models/Match');
+    
+    // Update global user balance
+    await User.findByIdAndUpdate(userId, {
+      $inc: { balance: pnl }
+    });
+    
+    // Update match balance for this player
+    if (matchId) {
+      await Match.findByIdAndUpdate(matchId, {
+        $inc: {
+          'players.$[elem].currentBalance': pnl
+        }
+      }, {
+        arrayFilters: [{ 'elem.user': userId }]
+      });
     }
+    
+    console.log(`💰 Updated user balance and match balance: +${pnl}`);
   } catch (error) {
     console.error('Error updating user balance:', error);
     throw error;

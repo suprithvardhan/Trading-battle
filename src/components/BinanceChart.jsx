@@ -459,6 +459,8 @@ const BinanceChart = ({ ticker, onTickerSelect }) => {
 
   // Establish persistent 1-second WebSocket connection
   useEffect(() => {
+    if (!ticker) return
+
     const establishPersistentConnection = async () => {
       try {
         console.log('🚀 Establishing persistent 1s WebSocket connection...')
@@ -478,13 +480,8 @@ const BinanceChart = ({ ticker, onTickerSelect }) => {
                 parseFloat(kline.c)  // close
               ]
               
-              console.log('⚡ Persistent 1s candle:', newCandle)
-              console.log('⚡ Candle interval:', kline.i)
-              console.log('⚡ Candle is closed:', kline.x)
-              
               // Always update price from 1s WebSocket data
               setCurrentPrice(parseFloat(kline.c))
-              console.log(`💰 Price update from 1s WebSocket: $${parseFloat(kline.c)}`)
               
               // Update live data based on current timeframe
               if (isLiveMode) {
@@ -554,21 +551,27 @@ const BinanceChart = ({ ticker, onTickerSelect }) => {
     if (ticker) {
       establishPersistentConnection()
     }
-  }, [ticker, isLiveMode, selectedInterval])
 
-  // Cleanup WebSocket on unmount
+    // Cleanup function
+    return () => {
+      if (persistent1sConnection) {
+        console.log('🔌 Closing persistent 1s WebSocket...')
+        persistent1sConnection.close()
+        setPersistent1sConnection(null)
+      }
+    }
+  }, [ticker]) // Only depend on ticker
+
+  // Cleanup current timeframe WebSocket on unmount
   useEffect(() => {
     return () => {
       if (currentTimeframeWs) {
         console.log('🔌 Closing current timeframe WebSocket...')
         currentTimeframeWs.close()
-      }
-      if (persistent1sConnection) {
-        console.log('🔌 Closing persistent 1s WebSocket...')
-        persistent1sConnection.close()
+        setCurrentTimeframeWs(null)
       }
     }
-  }, [currentTimeframeWs, persistent1sConnection])
+  }, [currentTimeframeWs])
 
   // Professional fallback chart component with zoom
   const FallbackChart = () => {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTheme } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
@@ -47,41 +47,108 @@ const MatchPage = () => {
   const [showResultOverlay, setShowResultOverlay] = useState(false)
   const [matchResult, setMatchResult] = useState(null)
   const [matchEnded, setMatchEnded] = useState(false)
+  const [optimisticBalance, setOptimisticBalance] = useState(null)
 
-  // Fetch match data
-  useEffect(() => {
-    const fetchMatchData = async () => {
-      try {
-        setLoading(true)
-        // Get match ID from URL params or state
-        const matchId = new URLSearchParams(window.location.search).get('matchId') || 'mock-match-id'
-        
-        const response = await api.get(`/matches/${matchId}`)
-        
-        if (response.data.success) {
-          console.log('📊 Match data loaded:', response.data.match)
-          console.log('🔍 Match ID:', response.data.match?._id)
-          setMatchData(response.data.match)
-        } else {
-          console.error('Match not found')
-          setMatchData(null)
-        }
-      } catch (error) {
-        console.error('Error fetching match data:', error)
+  // Derive userPlayer and opponentPlayer from matchData
+  const userPlayer = matchData?.players?.find(p => {
+    const playerUserId = p.user._id ? p.user._id.toString() : p.user.toString();
+    return playerUserId === user?.id;
+  })
+
+  const opponentPlayer = matchData?.players?.find(p => {
+    const playerUserId = p.user._id ? p.user._id.toString() : p.user.toString();
+    return playerUserId !== user?.id;
+  })
+
+  // Fetch match data function
+  const fetchMatchData = async () => {
+    try {
+      setLoading(true)
+      // Get match ID from URL params or state
+      const matchId = new URLSearchParams(window.location.search).get('matchId') || 'mock-match-id'
+      
+      const response = await api.get(`/matches/${matchId}`)
+      
+      if (response.data.success) {
+        // Match data loaded successfully
+        setMatchData(response.data.match)
+        // Reset optimistic balance after getting real data
+        setOptimisticBalance(null)
+      } else {
+        console.error('Match not found')
         setMatchData(null)
-      } finally {
-        setLoading(false)
       }
+    } catch (error) {
+      console.error('Error fetching match data:', error)
+      setMatchData(null)
+    } finally {
+      setLoading(false)
     }
+  }
 
+  // Fetch match data on component mount
+  useEffect(() => {
     fetchMatchData()
   }, [user])
+
+  // Handle optimistic balance updates
+  const handleOptimisticBalanceUpdate = (marginDeduction) => {
+    if (matchData && userPlayer) {
+      const newBalance = (userPlayer.currentBalance || 0) - marginDeduction
+      setOptimisticBalance(newBalance)
+      // Optimistic balance update
+    }
+  }
+
+  // Update balance without full re-render
+  const updateBalanceOnly = async () => {
+    try {
+      const matchId = new URLSearchParams(window.location.search).get('matchId') || 'mock-match-id'
+      const response = await api.get(`/matches/${matchId}`)
+      
+      if (response.data.success && response.data.match) {
+        // Update only the userPlayer balance without full re-render
+        setMatchData(prevData => ({
+          ...prevData,
+          players: prevData.players.map(player => 
+            player.user._id === user?.id 
+              ? { ...player, currentBalance: response.data.match.players.find(p => p.user._id === user?.id)?.currentBalance || player.currentBalance }
+              : player
+          )
+        }))
+        // Reset optimistic balance
+        setOptimisticBalance(null)
+      }
+    } catch (error) {
+      console.error('Error updating balance:', error)
+    }
+  }
+
+  // Get current balance (optimistic or real)
+  const getCurrentBalance = () => {
+    if (optimisticBalance !== null) {
+      return optimisticBalance
+    }
+    return userPlayer?.currentBalance || 0
+  }
+
 
   // Initialize ticker data (no backend polling - WebSocket will provide real-time data)
   useEffect(() => {
     // Set initial ticker data to null - WebSocket will update it
     setTickerData(null)
   }, [selectedTicker])
+
+  // Memoized price update handler to prevent unnecessary re-renders
+  const handlePriceUpdate = useCallback((tickerData) => {
+    // Only update if the data has actually changed
+    setTickerData(prevData => {
+      if (!prevData || prevData.price !== tickerData.price) {
+        return tickerData
+      }
+      return prevData
+    })
+  }, [])
 
   // Set up WebSocket for real-time price updates for TradingPanel
   useEffect(() => {
@@ -97,13 +164,7 @@ const MatchPage = () => {
       binanceWebSocketService.connect(selectedTicker)
       
       // Subscribe to price updates
-      unsubscribe = binanceWebSocketService.subscribe((tickerData) => {
-        console.log(`💰 Price update for TradingPanel:`, tickerData)
-        setTickerData(tickerData)
-        
-        // Check for order execution
-        checkOrderExecution(tickerData.price)
-      })
+      unsubscribe = binanceWebSocketService.subscribe(handlePriceUpdate)
     })
 
     // Cleanup function
@@ -113,127 +174,134 @@ const MatchPage = () => {
         unsubscribe()
       }
     }
-  }, [selectedTicker])
+  }, [selectedTicker, handlePriceUpdate])
 
-  // Check and execute orders when price conditions are met
-  const checkOrderExecution = async (currentPrice) => {
-    try {
-      if (!matchData?._id || !orders.open?.length) {
-        console.log('🔍 No orders to check:', { matchId: matchData?._id, openOrders: orders.open?.length })
-        return
-      }
+  // Set up Match Connection Service
+  useEffect(() => {
+    if (!matchData?._id || !user?.id) return
 
-      const pendingOrders = orders.open.filter(order => 
-        order.status === 'pending' && 
-        order.symbol === selectedTicker
-      )
-
-      console.log(`🔍 Checking ${pendingOrders.length} pending orders for ${selectedTicker}`)
-
-      for (const order of pendingOrders) {
-        let shouldExecute = false
-
-        // Skip market orders (they execute immediately on placement)
-        if (order.type === 'market') {
-          continue
-        }
-
-        // Get the market price when order was placed
-        const marketPriceAtPlacement = order.marketPriceAtPlacement || 0
-        const limitPrice = order.price
-
-        console.log(`🔍 Checking order ${order._id}:`, {
-          side: order.side,
-          type: order.type,
-          limitPrice,
-          marketPriceAtPlacement,
-          currentPrice,
-          condition: marketPriceAtPlacement < limitPrice ? 'breakout' : 'pullback'
-        })
-
-        // BUY ORDERS
-        if (order.side === 'buy') {
-          if (order.type === 'limit') {
-            if (marketPriceAtPlacement < limitPrice) {
-              // Breakout: Execute when current price >= limit price (price breaks above limit)
-              shouldExecute = currentPrice >= limitPrice
-              console.log(`📈 BUY breakout: ${currentPrice} >= ${limitPrice} = ${shouldExecute}`)
-            } else {
-              // Pullback: Execute when current price <= limit price (price drops to limit)
-              shouldExecute = currentPrice <= limitPrice
-              console.log(`📉 BUY pullback: ${currentPrice} <= ${limitPrice} = ${shouldExecute}`)
-            }
-          } else if (order.type === 'stop_market') {
-            // Stop market: Execute when current price >= stop price (breakout)
-            shouldExecute = currentPrice >= limitPrice
-            console.log(`🛑 BUY stop: ${currentPrice} >= ${limitPrice} = ${shouldExecute}`)
-          }
-        }
-        // SELL ORDERS
-        else if (order.side === 'sell') {
-          if (order.type === 'limit') {
-            if (marketPriceAtPlacement > limitPrice) {
-              // Pullback: Execute when current price <= limit price
-              shouldExecute = currentPrice <= limitPrice
-              console.log(`📉 SELL pullback: ${currentPrice} <= ${limitPrice} = ${shouldExecute}`)
-            } else {
-              // Breakout: Execute when current price >= limit price
-              shouldExecute = currentPrice >= limitPrice
-              console.log(`📈 SELL breakout: ${currentPrice} >= ${limitPrice} = ${shouldExecute}`)
-            }
-          } else if (order.type === 'stop_market') {
-            // Stop market: Execute when current price <= stop price (breakdown)
-            shouldExecute = currentPrice <= limitPrice
-            console.log(`🛑 SELL stop: ${currentPrice} <= ${limitPrice} = ${shouldExecute}`)
-          }
-        }
-
-        if (shouldExecute) {
-          console.log(`🎯 Executing ${order.side.toUpperCase()} ${order.type.toUpperCase()} order ${order._id} at price ${currentPrice}`)
-          await executeOrder(order._id, currentPrice)
-          // Break to avoid multiple executions in the same cycle
-          break
-        }
-      }
-    } catch (error) {
-      console.error('Error checking order execution:', error)
-    }
-  }
-
-  // Execute an order
-  const executeOrder = async (orderId, executionPrice) => {
-    try {
-      console.log(`🚀 Executing order ${orderId} at price ${executionPrice}`)
+    console.log(`🔌 Connecting to match connection service for user ${user.id}, match ${matchData._id}`)
+    
+    let unsubscribeMatchEnded = null
+    
+    // Import and connect to match connection service
+    import('../services/matchConnectionService').then(({ default: matchConnectionService }) => {
+      matchConnectionService.connect(user.id, matchData._id)
       
-      const response = await fetch(`http://localhost:5000/api/orders/${orderId}/execute`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          executionPrice,
-          executionQuantity: null // Use full quantity
+      // Subscribe to match ended events
+      unsubscribeMatchEnded = matchConnectionService.subscribe('match_ended', (data) => {
+        console.log('🏁 Match ended notification received:', data)
+        
+        // Set match result and show overlay
+        setMatchResult({
+          winner: data.result.winner,
+          userBalance: data.result.userBalance,
+          opponentBalance: data.result.opponentBalance,
+          userRealizedPnL: data.result.userRealizedPnL || 0,
+          opponentRealizedPnL: data.result.opponentRealizedPnL || 0,
+          userTrades: data.result.userTrades,
+          opponentTrades: data.result.opponentTrades,
+          duration: '5:00',
+          opponent: matchData.players.find(p => p.user._id !== user.id),
+          startingBalance: matchData.players.find(p => p.user._id === user.id)?.startingBalance || 10000,
+          opponentStartingBalance: matchData.players.find(p => p.user._id !== user.id)?.startingBalance || 10000,
+          reason: data.reason,
+          message: data.message
         })
+        setShowResultOverlay(true)
+        setMatchEnded(true)
+      })
+    })
+    
+    // Cleanup function
+    return () => {
+      if (unsubscribeMatchEnded) unsubscribeMatchEnded()
+      
+      import('../services/matchConnectionService').then(({ default: matchConnectionService }) => {
+        matchConnectionService.disconnect()
+      })
+    }
+  }, [matchData, user])
+
+  // Set up Order Execution Service connection
+  useEffect(() => {
+    if (!matchData?._id || !user?.id) return
+
+    console.log(`🔌 Connecting to order execution service for user ${user.id}, match ${matchData._id}`)
+    
+    let unsubscribeExecutions = null
+    let unsubscribePrices = null
+    let unsubscribePositionClosed = null
+    let unsubscribePositionUpdated = null
+    
+    // Import and connect to order execution service
+    import('../services/orderExecutionService').then(({ default: orderExecutionService }) => {
+      orderExecutionService.connect(user.id, matchData._id)
+      
+      // Subscribe to order executions
+      unsubscribeExecutions = orderExecutionService.subscribe('order_executed', (data) => {
+        console.log('🎯 Order executed notification received:', data)
+        // Reset optimistic balance since real balance is now updated
+        setOptimisticBalance(null)
+        // Update balance only (no full re-render)
+        setTimeout(() => {
+          updateBalanceOnly()
+        }, 500)
+        // Refresh orders and positions with debouncing
+        debouncedFetchOrdersAndPositions()
+      })
+      
+      // Subscribe to position closures
+      unsubscribePositionClosed = orderExecutionService.subscribe('position_closed', (data) => {
+        console.log('🔄 Position closed notification received:', data)
+        // Reset optimistic balance since real balance is now updated
+        setOptimisticBalance(null)
+        // Update balance only (no full re-render)
+        setTimeout(() => {
+          updateBalanceOnly()
+        }, 500)
+        // Refresh orders and positions with debouncing
+        debouncedFetchOrdersAndPositions()
       })
 
-      const data = await response.json()
-      console.log(`📥 Execution response:`, data)
+      // Subscribe to position updates for real-time PnL updates
+      unsubscribePositionUpdated = orderExecutionService.subscribe('position_updated', (data) => {
+        console.log('📊 Position updated notification received:', data)
+        // Update positions in real-time
+        setPositions(prev => prev.map(pos => 
+          pos._id === data.positionId 
+            ? { ...pos, ...data.updates }
+            : pos
+        ))
+      })
       
-      if (data.success) {
-        console.log(`✅ Order ${orderId} executed successfully`)
-        // Refresh orders and positions
-        fetchOrdersAndPositions()
-      } else {
-        console.error('❌ Failed to execute order:', data.message)
-      }
-    } catch (error) {
-      console.error('❌ Error executing order:', error)
+      // Subscribe to price updates from execution service
+      unsubscribePrices = orderExecutionService.subscribe('price_update', (data) => {
+        if (data.symbol === selectedTicker) {
+          setTickerData(prev => ({
+            ...prev,
+            price: data.price,
+            timestamp: data.timestamp
+          }))
+        }
+      })
+    })
+    
+    // Cleanup function
+    return () => {
+      if (unsubscribeExecutions) unsubscribeExecutions()
+      if (unsubscribePrices) unsubscribePrices()
+      if (unsubscribePositionClosed) unsubscribePositionClosed()
+      if (unsubscribePositionUpdated) unsubscribePositionUpdated()
+      
+      import('../services/orderExecutionService').then(({ default: orderExecutionService }) => {
+        orderExecutionService.disconnect()
+      })
     }
-  }
+  }, [matchData, user, selectedTicker])
 
-  // Fetch orders and positions
-  const fetchOrdersAndPositions = async () => {
+  // Fetch orders and positions with debouncing
+  const fetchOrdersAndPositions = useCallback(async () => {
     try {
       if (matchData?._id) {
         // Fetch orders
@@ -266,7 +334,14 @@ const MatchPage = () => {
         const positionsData = await positionsResponse.json()
         
         if (positionsData.success) {
-          setPositions(positionsData.positions || [])
+          // Deduplicate positions by _id to prevent duplicate cards
+          const uniquePositions = (positionsData.positions || []).reduce((acc, position) => {
+            if (!acc.find(p => p._id === position._id)) {
+              acc.push(position)
+            }
+            return acc
+          }, [])
+          setPositions(uniquePositions)
         }
       }
     } catch (error) {
@@ -278,11 +353,27 @@ const MatchPage = () => {
       })
       setPositions([])
     }
-  }
+  }, [matchData?._id])
+
+  // Light debouncing only for rapid successive calls
+  const debounceTimeoutRef = useRef(null)
+  
+  const debouncedFetchOrdersAndPositions = useCallback(() => {
+    // Clear existing timeout
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current)
+    }
+    
+    // Set new timeout with shorter delay
+    debounceTimeoutRef.current = setTimeout(() => {
+      fetchOrdersAndPositions()
+      debounceTimeoutRef.current = null
+    }, 100) // Reduced to 100ms for faster updates
+  }, [fetchOrdersAndPositions])
 
   useEffect(() => {
     fetchOrdersAndPositions()
-  }, [matchData])
+  }, [fetchOrdersAndPositions])
 
   const handleQuitMatch = async () => {
     if (window.confirm('Are you sure you want to quit this match? This action cannot be undone.')) {
@@ -296,21 +387,9 @@ const MatchPage = () => {
         if (matchData?._id) {
           await api.post(`/matches/${matchData._id}/quit`)
         }
-        // Show result overlay with defeat
-        const opponent = matchData?.players?.find(p => {
-          const playerUserId = p.user._id ? p.user._id.toString() : p.user.toString();
-          return playerUserId !== user?.id;
-        });
-        setMatchResult({
-          winner: opponent?.user,
-          userBalance: 10000,
-          opponentBalance: 10000,
-          userTrades: 0,
-          opponentTrades: 0,
-          duration: '0:00',
-          opponent: opponent
-        })
-        setShowResultOverlay(true)
+        
+        // The match connection service will handle the rest and notify both users
+        console.log('🏁 Match quit request sent, waiting for match connection service to handle...')
       } catch (error) {
         console.error('Error quitting match:', error)
         window.location.href = '/dashboard'
@@ -325,6 +404,18 @@ const MatchPage = () => {
       import('../services/binanceWebSocket').then(({ default: binanceWebSocketService }) => {
         console.log('🔌 Disconnecting WebSocket on component unmount')
         binanceWebSocketService.disconnect()
+      })
+      
+      // Clean up order execution service
+      import('../services/orderExecutionService').then(({ default: orderExecutionService }) => {
+        console.log('🔌 Disconnecting order execution service on component unmount')
+        orderExecutionService.disconnect()
+      })
+
+      // Clean up match connection service
+      import('../services/matchConnectionService').then(({ default: matchConnectionService }) => {
+        console.log('🔌 Disconnecting match connection service on component unmount')
+        matchConnectionService.disconnect()
       })
     }
   }, [])
@@ -349,14 +440,32 @@ const MatchPage = () => {
           // Check if user doubled their amount
           if (userPlayer.currentBalance >= 20000) {
             console.log('🎯 User doubled amount - ending match')
-            endMatch(userPlayer.user, userPlayer, opponentPlayer)
+            // Notify match connection service
+            fetch('http://localhost:5002/end-match', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                matchId: matchData._id,
+                reason: 'user_doubled',
+                userId: user.id
+              })
+            }).catch(console.error)
             return
           }
           
           // Check if opponent doubled their amount
           if (opponentPlayer.currentBalance >= 20000) {
             console.log('🎯 Opponent doubled amount - ending match')
-            endMatch(opponentPlayer.user, userPlayer, opponentPlayer)
+            // Notify match connection service
+            fetch('http://localhost:5002/end-match', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                matchId: matchData._id,
+                reason: 'opponent_doubled',
+                userId: user.id
+              })
+            }).catch(console.error)
             return
           }
           
@@ -369,13 +478,16 @@ const MatchPage = () => {
           
           if (elapsedMinutes >= 5) {
             console.log('⏰ Time up - ending match')
-            // Time up - winner is whoever has higher balance
-            const winner = userPlayer.currentBalance > opponentPlayer.currentBalance 
-              ? userPlayer.user 
-              : opponentPlayer.currentBalance > userPlayer.currentBalance 
-                ? opponentPlayer.user 
-                : null // Draw
-            endMatch(winner, userPlayer, opponentPlayer)
+            // Notify match connection service
+            fetch('http://localhost:5002/end-match', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                matchId: matchData._id,
+                reason: 'time_ended',
+                userId: user.id
+              })
+            }).catch(console.error)
           }
         }
       }
@@ -426,15 +538,103 @@ const MatchPage = () => {
     setShowTickerSelector(false)
   }
 
-  const handlePositionClose = (positionId) => {
-    setPositions(prev => prev.filter(pos => pos._id !== positionId))
-  }
+  const handlePositionClose = useCallback(async (positionId) => {
+    try {
+      console.log(`🔄 Closing position ${positionId}`)
+      
+      // Find the position to close
+      const position = positions.find(pos => pos._id === positionId)
+      if (!position) {
+        console.error('Position not found')
+        return
+      }
 
-  const handlePositionUpdate = (positionId, updates) => {
+      // Get current market price for the position's symbol
+      const currentPrice = tickerData?.price || position.markPrice
+      if (!currentPrice) {
+        console.error('Current price not available')
+        return
+      }
+
+      // Closing position
+
+      // Call backend to close position
+      const response = await api.post(`/positions/${positionId}/close`, {
+        price: currentPrice
+      })
+
+      if (response.data.success) {
+        console.log('✅ Position closed successfully')
+        // Backend response received
+        
+        // Get the total return from backend response (margin + PnL)
+        const totalReturn = response.data.position.totalReturn || 0
+        const realizedPnL = response.data.position.realizedPnL || 0
+        const margin = response.data.position.margin || 0
+        
+        // Position closed with total return
+        
+        // Remove position from frontend state
+        setPositions(prev => prev.filter(pos => pos._id !== positionId))
+        
+        // Update balance optimistically with total return (margin + PnL)
+        if (matchData && userPlayer) {
+          const newBalance = (userPlayer.currentBalance || 0) + totalReturn
+          setOptimisticBalance(newBalance)
+          // Updated balance optimistically
+          
+          // Also update the matchData state immediately for instant UI update
+          setMatchData(prevData => ({
+            ...prevData,
+            players: prevData.players.map(player => 
+              player.user._id === user?.id 
+                ? { ...player, currentBalance: newBalance }
+                : player
+            )
+          }))
+        }
+        
+        // Refresh match data to get updated balance
+        setTimeout(() => {
+          updateBalanceOnly()
+        }, 500)
+        
+        // Refresh orders and positions to show the new market order in history
+        debouncedFetchOrdersAndPositions()
+      } else {
+        console.error('Failed to close position:', response.data.message)
+      }
+    } catch (error) {
+      console.error('Error closing position:', error)
+    }
+  }, [positions, tickerData, matchData, user])
+
+  const handlePositionUpdate = useCallback((positionId, updates) => {
     setPositions(prev => prev.map(pos => 
       pos._id === positionId ? { ...pos, ...updates } : pos
     ))
-  }
+  }, [])
+
+  // Memoized components to prevent unnecessary re-renders
+  const memoizedBinanceChart = useMemo(() => (
+    <BinanceChart
+      ticker={selectedTicker}
+      onTickerSelect={() => setShowTickerSelector(true)}
+    />
+  ), [selectedTicker])
+
+  const memoizedOrderManagement = useMemo(() => (
+    <OrderManagement
+      activeTab={activeOrderTab}
+      onTabChange={setActiveOrderTab}
+      orders={orders}
+      positions={positions}
+      matchId={matchData?._id}
+      onPositionClose={handlePositionClose}
+      onPositionUpdate={handlePositionUpdate}
+      onRefreshOrders={debouncedFetchOrdersAndPositions}
+    />
+  ), [activeOrderTab, orders, positions, matchData?._id, handlePositionClose, handlePositionUpdate])
 
   if (loading) {
     return (
@@ -466,14 +666,6 @@ const MatchPage = () => {
     )
   }
 
-  const userPlayer = matchData.players.find(p => {
-    const playerUserId = p.user._id ? p.user._id.toString() : p.user.toString();
-    return playerUserId === user?.id;
-  })
-  const opponentPlayer = matchData.players.find(p => {
-    const playerUserId = p.user._id ? p.user._id.toString() : p.user.toString();
-    return playerUserId !== user?.id;
-  })
 
   return (
     <div className={`h-screen flex flex-col transition-colors duration-300 ${
@@ -486,6 +678,7 @@ const MatchPage = () => {
           userPlayer={userPlayer}
           opponentPlayer={opponentPlayer}
           onQuit={handleQuitMatch}
+          optimisticBalance={optimisticBalance}
         />
       </div>
 
@@ -495,10 +688,7 @@ const MatchPage = () => {
         <div className="flex min-h-screen">
           {/* Chart */}
           <div className="flex-1 border-r border-gray-200 dark:border-gray-700 min-w-0">
-            <BinanceChart
-              ticker={selectedTicker}
-              onTickerSelect={() => setShowTickerSelector(true)}
-            />
+            {memoizedBinanceChart}
           </div>
 
           {/* Trading Panel */}
@@ -506,28 +696,29 @@ const MatchPage = () => {
             <TradingPanel
               ticker={selectedTicker}
               tickerData={tickerData}
-              userBalance={userPlayer?.currentBalance || 0}
+              userBalance={getCurrentBalance()}
               matchId={matchData?._id || 'mock-match-id'}
-              onOrderPlaced={() => {
-                // Refresh orders and positions without page reload
-                fetchOrdersAndPositions()
+              onOrderPlaced={(marginDeduction) => {
+                // Update balance optimistically
+                handleOptimisticBalanceUpdate(marginDeduction)
+                // Update balance only (no full re-render)
+                setTimeout(() => {
+                  updateBalanceOnly()
+                }, 500)
+                // Refresh orders and positions with debouncing
+                debouncedFetchOrdersAndPositions()
+              }}
+              onOrderFailed={() => {
+                // Reset optimistic balance on failure
+                setOptimisticBalance(null)
               }}
             />
-            {console.log('🔍 Passing matchId to TradingPanel:', matchData?._id || 'mock-match-id')}
           </div>
         </div>
 
         {/* Order Management - Below main interface, requires scrolling */}
         <div className="border-t border-gray-200 dark:border-gray-700">
-          <OrderManagement
-            activeTab={activeOrderTab}
-            onTabChange={setActiveOrderTab}
-            orders={orders}
-            positions={positions}
-            matchId={matchData._id}
-            onPositionClose={handlePositionClose}
-            onPositionUpdate={handlePositionUpdate}
-          />
+          {memoizedOrderManagement}
         </div>
       </div>
 

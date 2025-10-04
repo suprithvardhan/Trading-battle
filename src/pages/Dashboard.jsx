@@ -48,7 +48,8 @@ const Dashboard = () => {
         }
         
         if (matchesRes.data.success) {
-          setRecentMatches(matchesRes.data.matches)
+          // Limit to last 4 matches
+          setRecentMatches(matchesRes.data.matches.slice(0, 4))
         }
       } catch (error) {
         console.error('Error fetching dashboard data:', error)
@@ -82,7 +83,7 @@ const Dashboard = () => {
             asset: 'BNB/USD'
           }
         ]
-        setRecentMatches(mockMatches)
+        setRecentMatches(mockMatches.slice(0, 4)) // Limit to 4 matches
       } finally {
         setLoading(false)
       }
@@ -103,6 +104,18 @@ const Dashboard = () => {
 
   const handleCloseMatchmaking = () => {
     setShowMatchmaking(false)
+  }
+
+  const formatTimeAgo = (date) => {
+    const now = new Date()
+    const diff = now - new Date(date)
+    const minutes = Math.floor(diff / 60000)
+    const hours = Math.floor(diff / 3600000)
+    const days = Math.floor(diff / 86400000)
+    
+    if (days > 0) return `${days} day${days > 1 ? 's' : ''} ago`
+    if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''} ago`
+    return `${minutes} minute${minutes > 1 ? 's' : ''} ago`
   }
 
   if (loading) {
@@ -370,47 +383,63 @@ const Dashboard = () => {
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ duration: 0.3 }}
                   className={`p-3 rounded-lg border transition-colors duration-300 ${
-                    isDark 
-                      ? 'bg-gray-700 border-gray-600' 
-                      : 'bg-gray-50 border-gray-200'
+                    match.result === 'win' 
+                      ? (isDark 
+                          ? 'bg-green-900/20 border-green-500/30' 
+                          : 'bg-green-50 border-green-200')
+                      : match.result === 'loss'
+                      ? (isDark 
+                          ? 'bg-red-900/20 border-red-500/30' 
+                          : 'bg-red-50 border-red-200')
+                      : (isDark 
+                          ? 'bg-gray-700 border-gray-600' 
+                          : 'bg-gray-50 border-gray-200')
                   }`}
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center space-x-2">
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                    <div className="flex items-center space-x-3">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
                         match.result === 'win' 
-                          ? 'bg-green-500/20' 
-                          : 'bg-red-500/20'
+                          ? (isDark ? 'bg-green-500/20' : 'bg-green-100')
+                          : match.result === 'loss'
+                          ? (isDark ? 'bg-red-500/20' : 'bg-red-100')
+                          : (isDark ? 'bg-gray-500/20' : 'bg-gray-100')
                       }`}>
                         {match.result === 'win' ? (
-                          <Plus className="w-3 h-3 text-green-500" />
+                          <Plus className="w-4 h-4 text-green-500" />
+                        ) : match.result === 'loss' ? (
+                          <Minus className="w-4 h-4 text-red-500" />
                         ) : (
-                          <Minus className="w-3 h-3 text-red-500" />
+                          <Clock className="w-4 h-4 text-gray-500" />
                         )}
                       </div>
                       <div>
                         <div className={`text-sm font-medium transition-colors duration-300 ${
                           isDark ? 'text-white' : 'text-gray-900'
                         }`}>
-                          vs {match.opponent}
+                          vs {match.opponent || match.players?.find(p => p.user?._id !== user?.id)?.username || 'Unknown'}
                         </div>
                         <div className={`text-xs transition-colors duration-300 ${
                           isDark ? 'text-gray-300' : 'text-gray-600'
                         }`}>
-                          {match.asset}
+                          {match.asset || 'BTC/USD'}
                         </div>
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className={`text-sm font-semibold ${
-                        match.result === 'win' ? 'text-green-500' : 'text-red-500'
+                      <div className={`text-sm font-semibold px-2 py-1 rounded-full ${
+                        match.result === 'win' 
+                          ? (isDark ? 'bg-green-500/20 text-green-400' : 'bg-green-100 text-green-700')
+                          : match.result === 'loss'
+                          ? (isDark ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-700')
+                          : (isDark ? 'bg-gray-500/20 text-gray-400' : 'bg-gray-100 text-gray-700')
                       }`}>
-                        {match.result === 'win' ? '+' : ''}${match.profit}
+                        {match.result === 'win' ? '+' : ''}${match.profit?.toLocaleString() || '0'}
                       </div>
                       <div className={`text-xs transition-colors duration-300 ${
                         isDark ? 'text-gray-300' : 'text-gray-600'
                       }`}>
-                        {match.duration}
+                        {match.duration || '5m'}
                       </div>
                     </div>
                   </div>
@@ -418,11 +447,11 @@ const Dashboard = () => {
                     <span className={`transition-colors duration-300 ${
                       isDark ? 'text-gray-400' : 'text-gray-500'
                     }`}>
-                      {match.timestamp}
+                      {match.endTime ? formatTimeAgo(match.endTime) : match.timestamp}
                     </span>
                     <div className="flex items-center space-x-1">
                       <Clock className="w-3 h-3" />
-                      <span>{match.duration}</span>
+                      <span>{match.duration || '5m'}</span>
                     </div>
                   </div>
                 </motion.div>

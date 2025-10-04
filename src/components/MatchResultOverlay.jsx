@@ -138,7 +138,7 @@ const MatchResultOverlay = ({ isOpen, matchResult, onClose }) => {
                     }`}>Starting</span>
                     <span className={`text-sm font-bold ${
                       isDark ? 'text-white' : 'text-gray-900'
-                    }`}>$10,000</span>
+                    }`}>${matchResult.startingBalance?.toLocaleString() || '10,000'}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className={`text-xs ${
@@ -153,16 +153,16 @@ const MatchResultOverlay = ({ isOpen, matchResult, onClose }) => {
                   <div className="flex justify-between items-center">
                     <span className={`text-xs ${
                       isDark ? 'text-gray-400' : 'text-gray-600'
-                    }`}>P&L</span>
+                    }`}>Realized P&L</span>
                     <span className={`text-sm font-bold flex items-center ${
-                      matchResult.userBalance >= 10000 ? 'text-green-500' : 'text-red-500'
+                      (matchResult.userRealizedPnL || 0) >= 0 ? 'text-green-500' : 'text-red-500'
                     }`}>
-                      {matchResult.userBalance >= 10000 ? (
+                      {(matchResult.userRealizedPnL || 0) >= 0 ? (
                         <TrendingUp className="w-3 h-3 mr-1" />
                       ) : (
                         <TrendingDown className="w-3 h-3 mr-1" />
                       )}
-                      ${((matchResult.userBalance || 10000) - 10000).toLocaleString()}
+                      ${(matchResult.userRealizedPnL || 0).toLocaleString()}
                     </span>
                   </div>
                 </div>
@@ -197,14 +197,14 @@ const MatchResultOverlay = ({ isOpen, matchResult, onClose }) => {
                     }`}>Starting</span>
                     <span className={`text-sm font-bold ${
                       isDark ? 'text-white' : 'text-gray-900'
-                    }`}>$10,000</span>
+                    }`}>${matchResult.opponentStartingBalance?.toLocaleString() || '10,000'}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className={`text-xs ${
                       isDark ? 'text-gray-400' : 'text-gray-600'
                     }`}>Final</span>
                     <span className={`text-sm font-bold ${
-                      matchResult.opponentBalance >= 10000 ? 'text-green-500' : 'text-red-500'
+                      matchResult.opponentBalance >= (matchResult.opponentStartingBalance || 10000) ? 'text-green-500' : 'text-red-500'
                     }`}>
                       ${matchResult.opponentBalance?.toLocaleString() || '10,000'}
                     </span>
@@ -212,16 +212,16 @@ const MatchResultOverlay = ({ isOpen, matchResult, onClose }) => {
                   <div className="flex justify-between items-center">
                     <span className={`text-xs ${
                       isDark ? 'text-gray-400' : 'text-gray-600'
-                    }`}>P&L</span>
+                    }`}>Realized P&L</span>
                     <span className={`text-sm font-bold flex items-center ${
-                      matchResult.opponentBalance >= 10000 ? 'text-green-500' : 'text-red-500'
+                      (matchResult.opponentRealizedPnL || 0) >= 0 ? 'text-green-500' : 'text-red-500'
                     }`}>
-                      {matchResult.opponentBalance >= 10000 ? (
+                      {(matchResult.opponentRealizedPnL || 0) >= 0 ? (
                         <TrendingUp className="w-3 h-3 mr-1" />
                       ) : (
                         <TrendingDown className="w-3 h-3 mr-1" />
                       )}
-                      ${((matchResult.opponentBalance || 10000) - 10000).toLocaleString()}
+                      ${(matchResult.opponentRealizedPnL || 0).toLocaleString()}
                     </span>
                   </div>
                 </div>

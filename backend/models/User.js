@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+const mongoose = require('../db'); // Use shared mongoose instance
 const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema({
@@ -107,7 +107,8 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
 // Calculate win rate
 userSchema.methods.calculateWinRate = function() {
   if (this.stats.totalMatches === 0) return 0;
-  return Math.round((this.stats.wins / this.stats.totalMatches) * 100);
+  const winRate = (this.stats.wins / this.stats.totalMatches) * 100;
+  return Math.min(Math.round(winRate), 100); // Cap at 100%
 };
 
 // Update tier based on stats

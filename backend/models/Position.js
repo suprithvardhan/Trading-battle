@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+const mongoose = require('../db'); // Use shared mongoose instance
 
 const positionSchema = new mongoose.Schema({
   user: {

@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const Order = require('../models/Order');
 const Position = require('../models/Position');
 const User = require('../models/User');
+const Match = require('../models/Match');
 const auth = require('../middleware/auth');
 
 // Function to get current market price
@@ -104,10 +105,48 @@ router.post('/', auth, async (req, res) => {
     await order.save();
     console.log('✅ Order saved successfully:', order._id);
 
+    // Deduct margin from user balance AND match balance
+    const marginRequired = (parseFloat(quantity) * orderPrice) / parseInt(leverage);
+    console.log(`💰 Deducting margin: ${marginRequired} USDT from user balance and match balance`);
+    
+    // Update global user balance
+    await User.findByIdAndUpdate(req.userId, {
+      $inc: { balance: -marginRequired }
+    });
+    
+    // Update match balance for this player
+    await Match.findByIdAndUpdate(matchId, {
+      $inc: {
+        'players.$[elem].currentBalance': -marginRequired
+      }
+    }, {
+      arrayFilters: [{ 'elem.user': req.userId }]
+    });
+    
+    console.log(`✅ User balance and match balance updated: -${marginRequired} USDT`);
+
     // If market order, execute immediately
     if (type === 'market') {
       console.log('📊 Executing market order...');
       await executeOrder(order);
+    } else {
+      // Notify execution service of new order
+      try {
+        await fetch('http://localhost:5001/notify-new-order', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            userId: req.userId,
+            matchId: matchId,
+            symbol: symbol
+          })
+        });
+        console.log('📨 Notified execution service of new order');
+      } catch (error) {
+        console.error('❌ Error notifying execution service:', error);
+      }
     }
 
     res.status(201).json({
@@ -151,26 +190,53 @@ router.get('/:matchId', auth, async (req, res) => {
 router.put('/:orderId/cancel', auth, async (req, res) => {
   try {
     const { orderId } = req.params;
+    const userId = req.user.id;
+    
+    console.log(`🚫 Cancelling order ${orderId} for user ${userId}`);
     
     const order = await Order.findOne({
       _id: orderId,
-      user: req.userId,
+      user: userId,
       status: 'pending'
     });
 
     if (!order) {
+      console.log(`❌ Order ${orderId} not found or cannot be cancelled`);
       return res.status(404).json({
         success: false,
         message: 'Order not found or cannot be cancelled'
       });
     }
 
-    await order.cancel();
+    // Update order status directly
+    await Order.findByIdAndUpdate(orderId, {
+      status: 'cancelled',
+      cancelledAt: new Date(),
+      cancelReason: 'user_cancelled',
+      updatedAt: new Date()
+    });
+
+    // Notify order execution service to cleanup connections if needed
+    try {
+      await fetch('http://localhost:5001/check-cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: order.symbol })
+      });
+    } catch (error) {
+      console.error('❌ Error notifying execution service:', error);
+    }
+
+    console.log(`✅ Order ${orderId} cancelled successfully`);
 
     res.json({
       success: true,
       message: 'Order cancelled successfully',
-      order
+      order: {
+        _id: orderId,
+        status: 'cancelled',
+        cancelledAt: new Date()
+      }
     });
   } catch (error) {
     console.error('Error cancelling order:', error);
@@ -431,7 +497,7 @@ router.post('/:orderId/execute', auth, async (req, res) => {
 router.post('/:orderId/cancel', auth, async (req, res) => {
   try {
     const { orderId } = req.params
-    const userId = req.userId
+    const userId = req.user.id
 
     console.log(`📋 Cancelling order ${orderId} for user ${userId}`)
 

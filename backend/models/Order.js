@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+const mongoose = require('../db'); // Use shared mongoose instance
 
 const orderSchema = new mongoose.Schema({
   user: {
@@ -82,6 +82,37 @@ const orderSchema = new mongoose.Schema({
   fees: {
     type: Number,
     default: 0
+  },
+  // TP/SL order management
+  parentOrder: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Order'
+  },
+  tpSlOrders: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Order'
+  }],
+  orderType: {
+    type: String,
+    enum: ['regular', 'take_profit', 'stop_loss', 'position_close'],
+    default: 'regular'
+  },
+  // Position close specific fields
+  isPositionClose: {
+    type: Boolean,
+    default: false
+  },
+  originalPositionId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Position'
+  },
+  // Cancellation fields
+  cancelledAt: {
+    type: Date
+  },
+  cancelReason: {
+    type: String,
+    enum: ['user_cancelled', 'match_ended', 'system_cancelled']
   },
   // Timestamps
   createdAt: {

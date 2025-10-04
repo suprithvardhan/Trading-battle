@@ -16,10 +16,50 @@ import {
 import axios from 'axios'
 import PositionCard from './PositionCard'
 
-const OrderManagement = ({ activeTab, onTabChange, orders, positions, matchId, onPositionClose, onPositionUpdate }) => {
+const OrderManagement = ({ activeTab, onTabChange, orders, positions, matchId, onPositionClose, onPositionUpdate, onRefreshOrders }) => {
   const { isDark } = useTheme()
   const [filter, setFilter] = useState('all') // all, buy, sell
   const [loading, setLoading] = useState(false)
+
+  // Subscribe to order execution notifications
+  useEffect(() => {
+    import('../services/orderExecutionService').then(({ default: orderExecutionService }) => {
+      const unsubscribeOrder = orderExecutionService.subscribe('order_executed', (data) => {
+        console.log('🎯 Order executed in OrderManagement:', data)
+        if (onRefreshOrders) {
+          onRefreshOrders()
+        }
+      })
+
+      const unsubscribePosition = orderExecutionService.subscribe('position_closed', (data) => {
+        console.log('🔄 Position closed in OrderManagement:', data)
+        if (onRefreshOrders) {
+          onRefreshOrders()
+        }
+      })
+
+      const unsubscribePositionCreated = orderExecutionService.subscribe('position_created', (data) => {
+        console.log('📊 Position created in OrderManagement:', data)
+        if (onRefreshOrders) {
+          onRefreshOrders()
+        }
+      })
+
+      const unsubscribePositionUpdated = orderExecutionService.subscribe('position_updated', (data) => {
+        console.log('📊 Position updated in OrderManagement:', data)
+        if (onRefreshOrders) {
+          onRefreshOrders()
+        }
+      })
+      
+      return () => {
+        unsubscribeOrder()
+        unsubscribePosition()
+        unsubscribePositionCreated()
+        unsubscribePositionUpdated()
+      }
+    })
+  }, [onRefreshOrders])
 
   const tabs = [
     { id: 'positions', label: 'Positions', icon: BarChart3, count: positions.length },
@@ -89,12 +129,9 @@ const OrderManagement = ({ activeTab, onTabChange, orders, positions, matchId, o
       const data = await response.json()
       
       if (data.success) {
-        // Remove the cancelled order from the list
-        setOrders(prev => ({
-          ...prev,
-          open: prev.open.filter(order => order._id !== orderId),
-          history: [...prev.history, { ...prev.open.find(order => order._id === orderId), status: 'cancelled' }]
-        }))
+        console.log('✅ Order cancelled successfully')
+        // The parent component will refresh the orders via fetchOrdersAndPositions()
+        // No need to manually update state here
       } else {
         console.error('Failed to cancel order:', data.message)
       }
@@ -250,11 +287,15 @@ const OrderManagement = ({ activeTab, onTabChange, orders, positions, matchId, o
                     <div className="flex items-center space-x-4">
                       {/* Order Type Icon */}
                       <div className={`p-3 rounded-full ${
-                        order.side === 'buy' 
-                          ? 'bg-green-100 text-green-600' 
-                          : 'bg-red-100 text-red-600'
+                        order.isPositionClose 
+                          ? 'bg-blue-100 text-blue-600' 
+                          : order.side === 'buy' 
+                            ? 'bg-green-100 text-green-600' 
+                            : 'bg-red-100 text-red-600'
                       }`}>
-                        {order.side === 'buy' ? (
+                        {order.isPositionClose ? (
+                          <XCircle className="w-5 h-5" />
+                        ) : order.side === 'buy' ? (
                           <TrendingUp className="w-5 h-5" />
                         ) : (
                           <TrendingDown className="w-5 h-5" />
@@ -279,7 +320,9 @@ const OrderManagement = ({ activeTab, onTabChange, orders, positions, matchId, o
                           <span className={`text-xs px-2 py-1 rounded-full ${
                             isDark ? 'bg-gray-600 text-gray-300' : 'bg-gray-200 text-gray-700'
                           }`}>
-                            {order.type === 'stop_market' ? 'STOP' : order.type.toUpperCase()}
+                            {order.isPositionClose ? 'POSITION CLOSE' : 
+                             order.type === 'stop_market' ? 'STOP' : 
+                             order.type.toUpperCase()}
                           </span>
                         </div>
                         <div className={`text-sm transition-colors duration-300 ${

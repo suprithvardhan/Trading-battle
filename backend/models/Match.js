@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+const mongoose = require('../db'); // Use shared mongoose instance
 
 const matchSchema = new mongoose.Schema({
   // Match participants
@@ -21,6 +21,10 @@ const matchSchema = new mongoose.Schema({
       default: 10000
     },
     profit: {
+      type: Number,
+      default: 0
+    },
+    realizedPnL: {
       type: Number,
       default: 0
     },

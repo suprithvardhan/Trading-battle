@@ -34,9 +34,15 @@ const Leaderboard = () => {
       try {
         setLoading(true)
         const [leaderboardRes, userRankRes, statsRes] = await Promise.all([
-          axios.get(`http://localhost:5000/api/leaderboard?period=${period}&limit=50`),
-          axios.get(`http://localhost:5000/api/leaderboard/me?period=${period}`),
-          axios.get('http://localhost:5000/api/leaderboard/stats')
+          axios.get(`http://localhost:5000/api/leaderboard?period=${period}&limit=50`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+          }),
+          axios.get(`http://localhost:5000/api/leaderboard/me?period=${period}`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+          }),
+          axios.get('http://localhost:5000/api/leaderboard/stats', {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+          })
         ])
         
         if (leaderboardRes.data.success) {

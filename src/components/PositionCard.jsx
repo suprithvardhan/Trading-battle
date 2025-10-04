@@ -12,9 +12,7 @@ import {
 
 const PositionCard = ({ position, onClose, onUpdateLeverage, onUpdateTPSL }) => {
   const { isDark } = useTheme()
-  const [showLeverageModal, setShowLeverageModal] = useState(false)
   const [showTPSLModal, setShowTPSLModal] = useState(false)
-  const [newLeverage, setNewLeverage] = useState(position.leverage)
   const [takeProfitPrice, setTakeProfitPrice] = useState(position.takeProfitPrice || '')
   const [stopLossPrice, setStopLossPrice] = useState(position.stopLossPrice || '')
 
@@ -64,27 +62,6 @@ const PositionCard = ({ position, onClose, onUpdateLeverage, onUpdateTPSL }) => 
     }
   }
 
-  const handleUpdateLeverage = async () => {
-    try {
-      const response = await fetch(`http://localhost:5000/api/positions/${position._id}/leverage`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          leverage: newLeverage
-        })
-      })
-
-      if (response.ok) {
-        setShowLeverageModal(false)
-        onUpdateLeverage(position._id, newLeverage)
-      }
-    } catch (error) {
-      console.error('Error updating leverage:', error)
-    }
-  }
 
   const handleUpdateTPSL = async () => {
     try {
@@ -270,17 +247,6 @@ const PositionCard = ({ position, onClose, onUpdateLeverage, onUpdateTPSL }) => 
         {/* Action Buttons */}
         <div className="flex space-x-2">
           <button
-            onClick={() => setShowLeverageModal(true)}
-            className={`flex-1 py-2 px-3 rounded text-sm font-medium transition-colors duration-300 ${
-              isDark
-                ? 'bg-gray-700 text-white hover:bg-gray-600'
-                : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
-            }`}
-          >
-            <Settings className="w-4 h-4 inline mr-1" />
-            Leverage
-          </button>
-          <button
             onClick={() => setShowTPSLModal(true)}
             className={`flex-1 py-2 px-3 rounded text-sm font-medium transition-colors duration-300 ${
               isDark
@@ -305,61 +271,6 @@ const PositionCard = ({ position, onClose, onUpdateLeverage, onUpdateTPSL }) => 
         </div>
       </motion.div>
 
-      {/* Leverage Modal */}
-      {showLeverageModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className={`w-96 p-6 rounded-lg shadow-xl transition-colors duration-300 ${
-              isDark ? 'bg-gray-800' : 'bg-white'
-            }`}
-          >
-            <h3 className={`text-lg font-semibold mb-4 transition-colors duration-300 ${
-              isDark ? 'text-white' : 'text-gray-900'
-            }`}>
-              Adjust Leverage
-            </h3>
-            <div className="mb-4">
-              <label className={`block text-sm font-medium mb-2 transition-colors duration-300 ${
-                isDark ? 'text-gray-300' : 'text-gray-700'
-              }`}>
-                Leverage (1x - 75x)
-              </label>
-              <input
-                type="number"
-                min="1"
-                max="75"
-                value={newLeverage}
-                onChange={(e) => setNewLeverage(parseInt(e.target.value))}
-                className={`w-full px-3 py-2 rounded border transition-colors duration-300 ${
-                  isDark 
-                    ? 'bg-gray-700 border-gray-600 text-white' 
-                    : 'bg-white border-gray-300 text-gray-900'
-                }`}
-              />
-            </div>
-            <div className="flex space-x-2">
-              <button
-                onClick={() => setShowLeverageModal(false)}
-                className={`flex-1 py-2 px-4 rounded text-sm font-medium transition-colors duration-300 ${
-                  isDark
-                    ? 'bg-gray-700 text-white hover:bg-gray-600'
-                    : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
-                }`}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleUpdateLeverage}
-                className="flex-1 py-2 px-4 rounded text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors duration-300"
-              >
-                Update
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
 
       {/* TP/SL Modal */}
       {showTPSLModal && (

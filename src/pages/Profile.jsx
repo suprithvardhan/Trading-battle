@@ -33,7 +33,11 @@ const Profile = () => {
     const fetchProfile = async () => {
       try {
         setLoading(true)
-        const response = await axios.get('http://localhost:5000/api/user/profile')
+        const response = await axios.get('http://localhost:5000/api/user/profile', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        })
         
         if (response.data.success) {
           setProfile(response.data.user)
@@ -72,7 +76,11 @@ const Profile = () => {
 
   const handleSave = async () => {
     try {
-      const response = await axios.put('http://localhost:5000/api/user/profile', editForm)
+      const response = await axios.put('http://localhost:5000/api/user/profile', editForm, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      })
       
       if (response.data.success) {
         setProfile(response.data.user)

@@ -16,7 +16,7 @@ import {
 } from 'lucide-react'
 import axios from 'axios'
 
-const TradingPanel = ({ ticker, tickerData, userBalance, matchId, onOrderPlaced }) => {
+const TradingPanel = ({ ticker, tickerData, userBalance, matchId, onOrderPlaced, onOrderFailed }) => {
   const { isDark } = useTheme()
   
   // Futures trading states
@@ -266,19 +266,27 @@ const TradingPanel = ({ ticker, tickerData, userBalance, matchId, onOrderPlaced 
         setTpslEnabled(false)
         setShowTpslSection(false)
         
-        // Notify parent component
+        // Notify parent component with margin deduction for optimistic balance update
         if (onOrderPlaced) {
-          onOrderPlaced()
+          onOrderPlaced(margin)
         }
         
         // Clear success message after 3 seconds
         setTimeout(() => setSuccess(''), 3000)
       } else {
         setError(result.message || 'Failed to place order')
+        // Notify parent component of failure
+        if (onOrderFailed) {
+          onOrderFailed()
+        }
       }
     } catch (error) {
       console.error('Error placing order:', error)
       setError('Failed to place order. Please try again.')
+      // Notify parent component of failure
+      if (onOrderFailed) {
+        onOrderFailed()
+      }
     } finally {
       setLoading(false)
     }

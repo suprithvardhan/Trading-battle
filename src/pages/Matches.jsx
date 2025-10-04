@@ -35,9 +35,15 @@ const Matches = () => {
       try {
         setLoading(true)
         const [activeRes, historyRes, statsRes] = await Promise.all([
-          axios.get('http://localhost:5000/api/matches/active'),
-          axios.get('http://localhost:5000/api/matches/history'),
-          axios.get('http://localhost:5000/api/dashboard/stats')
+          axios.get('http://localhost:5000/api/matches/active', {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+          }),
+          axios.get('http://localhost:5000/api/matches/history', {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+          }),
+          axios.get('http://localhost:5000/api/dashboard/stats', {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+          })
         ])
         
         if (activeRes.data.success) {
@@ -116,7 +122,9 @@ const Matches = () => {
   }, [])
 
   const filteredHistory = matchHistory.filter(match => {
-    const matchesSearch = match.opponent.toLowerCase().includes(searchQuery.toLowerCase())
+    // Get opponent username from players array with error handling
+    const opponent = match.players?.find(p => p.user?._id !== user?.id)?.username || 'Unknown'
+    const matchesSearch = opponent && opponent.toLowerCase().includes(searchQuery.toLowerCase())
     const matchesFilter = filter === 'all' || match.result === filter
     return matchesSearch && matchesFilter
   })
@@ -151,15 +159,19 @@ const Matches = () => {
   }
 
   const formatTimeAgo = (date) => {
+    if (!date) return 'Unknown time'
+    
     const now = new Date()
-    const diff = now - new Date(date)
+    const matchDate = new Date(date)
+    const diff = now - matchDate
     const minutes = Math.floor(diff / 60000)
     const hours = Math.floor(diff / 3600000)
     const days = Math.floor(diff / 86400000)
     
     if (days > 0) return `${days} day${days > 1 ? 's' : ''} ago`
     if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''} ago`
-    return `${minutes} minute${minutes > 1 ? 's' : ''} ago`
+    if (minutes > 0) return `${minutes} minute${minutes > 1 ? 's' : ''} ago`
+    return 'Just now'
   }
 
   if (loading) {
@@ -330,7 +342,7 @@ const Matches = () => {
                       <span className={`font-medium transition-colors duration-300 ${
                         isDark ? 'text-white' : 'text-gray-900'
                       }`}>
-                        vs {match.opponent}
+                        vs {match.players?.find(p => p.user?._id !== user?.id)?.username || 'Unknown'}
                       </span>
                     </div>
                     <div className={`text-sm transition-colors duration-300 ${
@@ -348,7 +360,7 @@ const Matches = () => {
                         Your Balance
                       </div>
                       <div className="text-green-500 font-bold">
-                        ${match.userBalance?.toLocaleString()}
+                        ${match.players?.find(p => p.user?._id === user?.id)?.currentBalance?.toLocaleString() || '0'}
                       </div>
                     </div>
                     <div className="text-center">
@@ -358,7 +370,7 @@ const Matches = () => {
                         Opponent
                       </div>
                       <div className="text-blue-500 font-bold">
-                        ${match.opponentBalance?.toLocaleString()}
+                        ${match.players?.find(p => p.user?._id !== user?.id)?.currentBalance?.toLocaleString() || '0'}
                       </div>
                     </div>
                   </div>
@@ -431,9 +443,17 @@ const Matches = () => {
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.3, delay: index * 0.05 }}
               className={`p-4 rounded-lg border transition-colors duration-300 ${
-                isDark 
-                  ? 'bg-gray-700 border-gray-600' 
-                  : 'bg-gray-50 border-gray-200'
+                match.result === 'win' 
+                  ? (isDark 
+                      ? 'bg-green-900/20 border-green-500/30' 
+                      : 'bg-green-50 border-green-200')
+                  : match.result === 'loss'
+                  ? (isDark 
+                      ? 'bg-red-900/20 border-red-500/30' 
+                      : 'bg-red-50 border-red-200')
+                  : (isDark 
+                      ? 'bg-gray-700 border-gray-600' 
+                      : 'bg-gray-50 border-gray-200')
               }`}
             >
               <div className="flex items-center justify-between">
@@ -443,7 +463,7 @@ const Matches = () => {
                     <div className={`font-medium transition-colors duration-300 ${
                       isDark ? 'text-white' : 'text-gray-900'
                     }`}>
-                      vs {match.opponent}
+                      vs {match.players?.find(p => p.user?._id !== user?.id)?.username || 'Unknown'}
                     </div>
                     <div className={`text-sm transition-colors duration-300 ${
                       isDark ? 'text-gray-300' : 'text-gray-600'
@@ -460,8 +480,14 @@ const Matches = () => {
                     }`}>
                       Result
                     </div>
-                    <div className={`font-bold ${getResultColor(match.result)}`}>
-                      {match.result === 'win' ? 'Won' : 'Lost'}
+                    <div className={`font-bold px-3 py-1 rounded-full text-xs ${
+                      match.result === 'win' 
+                        ? (isDark ? 'bg-green-500/20 text-green-400' : 'bg-green-100 text-green-700')
+                        : match.result === 'loss'
+                        ? (isDark ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-700')
+                        : (isDark ? 'bg-gray-500/20 text-gray-400' : 'bg-gray-100 text-gray-700')
+                    }`}>
+                      {match.result === 'win' ? 'Won' : match.result === 'loss' ? 'Lost' : 'Draw'}
                     </div>
                   </div>
                   
@@ -471,10 +497,14 @@ const Matches = () => {
                     }`}>
                       P&L
                     </div>
-                    <div className={`font-bold ${
-                      match.profit > 0 ? 'text-green-500' : 'text-red-500'
+                    <div className={`font-bold px-3 py-1 rounded-full text-xs ${
+                      match.profit > 0 
+                        ? (isDark ? 'bg-green-500/20 text-green-400' : 'bg-green-100 text-green-700')
+                        : match.profit < 0
+                        ? (isDark ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-700')
+                        : (isDark ? 'bg-gray-500/20 text-gray-400' : 'bg-gray-100 text-gray-700')
                     }`}>
-                      {match.profit > 0 ? '+' : ''}${match.profit}
+                      {match.profit > 0 ? '+' : ''}${match.profit?.toLocaleString() || '0'}
                     </div>
                   </div>
                   
@@ -487,7 +517,7 @@ const Matches = () => {
                     <div className={`text-sm transition-colors duration-300 ${
                       isDark ? 'text-gray-300' : 'text-gray-600'
                     }`}>
-                      {formatTimeAgo(match.endTime)}
+                      {formatTimeAgo(match.endTime || match.updatedAt)}
                     </div>
                   </div>
                 </div>

@@ -47,14 +47,41 @@ class MatchmakingService {
     // Get all users in queue
     const queueUsers = Array.from(this.waitingQueue.values());
     
+    // Debug: Log user details
+    console.log('👥 Users in queue:', queueUsers.map(u => ({
+      username: u.username,
+      tier: u.tier,
+      winRate: u.winRate,
+      totalMatches: u.totalMatches,
+      wins: u.wins || 'unknown',
+      losses: u.losses || 'unknown'
+    })));
+    
     // Try to match users
     for (let i = 0; i < queueUsers.length; i++) {
       for (let j = i + 1; j < queueUsers.length; j++) {
         const user1 = queueUsers[i];
         const user2 = queueUsers[j];
         
+        // Debug: Log compatibility check
+        const winRate1 = Math.min(isNaN(user1.winRate) ? 0 : user1.winRate, 100);
+        const winRate2 = Math.min(isNaN(user2.winRate) ? 0 : user2.winRate, 100);
+        const skillDifference = Math.abs(winRate1 - winRate2);
+        const tierMatch = this.isTierCompatible(user1.tier, user2.tier);
+        const isNewUser1 = user1.totalMatches === 0;
+        const isNewUser2 = user2.totalMatches === 0;
+        const isCompatible = (isNewUser1 && isNewUser2) ? tierMatch : (skillDifference <= 20 && tierMatch);
+        
+        console.log(`🔍 Checking compatibility: ${user1.username} vs ${user2.username}`);
+        console.log(`   User1: winRate=${winRate1}%, totalMatches=${user1.totalMatches}, tier=${user1.tier}`);
+        console.log(`   User2: winRate=${winRate2}%, totalMatches=${user2.totalMatches}, tier=${user2.tier}`);
+        console.log(`   Skill difference: ${skillDifference}% (max: 20%)`);
+        console.log(`   Tier match: ${tierMatch} (${user1.tier} vs ${user2.tier})`);
+        console.log(`   New users: ${isNewUser1} && ${isNewUser2}`);
+        console.log(`   Compatible: ${isCompatible}`);
+        
         // Check if they are compatible
-        if (this.areUsersCompatible(user1, user2)) {
+        if (isCompatible) {
           console.log(`✅ Found compatible match: ${user1.username} vs ${user2.username}`);
           
           // Create match
@@ -75,8 +102,21 @@ class MatchmakingService {
 
   // Check if two users are compatible
   areUsersCompatible(user1, user2) {
-    const skillDifference = Math.abs(user1.winRate - user2.winRate);
+    // Handle NaN or undefined winRate and cap at 100%
+    const winRate1 = Math.min(isNaN(user1.winRate) ? 0 : user1.winRate, 100);
+    const winRate2 = Math.min(isNaN(user2.winRate) ? 0 : user2.winRate, 100);
+    
+    const skillDifference = Math.abs(winRate1 - winRate2);
     const tierMatch = this.isTierCompatible(user1.tier, user2.tier);
+    
+    // For new users (totalMatches = 0), be more lenient
+    const isNewUser1 = user1.totalMatches === 0;
+    const isNewUser2 = user2.totalMatches === 0;
+    
+    if (isNewUser1 && isNewUser2) {
+      // Both new users - only check tier compatibility
+      return tierMatch;
+    }
     
     return skillDifference <= 20 && tierMatch; // Max 20% skill difference
   }
@@ -109,8 +149,10 @@ class MatchmakingService {
         userId,
         username: user.username,
         tier: user.tier,
-        winRate: user.stats.winRate,
+        winRate: user.calculateWinRate(), // Calculate fresh winRate
         totalMatches: user.stats.totalMatches,
+        wins: user.stats.wins,
+        losses: user.stats.losses,
         balance: user.balance,
         preferences: {
           matchType: preferences.matchType || 'quick',
@@ -321,9 +363,13 @@ class MatchmakingService {
 
     const level1 = tierLevels[tier1] || 1;
     const level2 = tierLevels[tier2] || 1;
+    const tierDifference = Math.abs(level1 - level2);
+    const isCompatible = tierDifference <= 2;
+
+    console.log(`   Tier compatibility: ${tier1}(${level1}) vs ${tier2}(${level2}) = ${tierDifference} <= 2 = ${isCompatible}`);
 
     // Allow matches within 2 tier levels
-    return Math.abs(level1 - level2) <= 2;
+    return isCompatible;
   }
 
   // Get queue position
@@ -364,6 +410,26 @@ class MatchmakingService {
       await match.save();
 
       this.activeMatches.set(matchId, match);
+
+      // Create match room in connection service when match starts
+      try {
+        await fetch('http://localhost:5002/create-room', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            matchId: match._id,
+            matchData: {
+              duration: match.duration || 5,
+              players: match.players
+            }
+          })
+        });
+        console.log(`🏠 Created match room for ${match._id} - Match is now active!`);
+      } catch (error) {
+        console.error('❌ Error creating match room:', error);
+      }
 
       return match;
     } catch (error) {

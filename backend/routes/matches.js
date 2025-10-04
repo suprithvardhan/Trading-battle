@@ -5,6 +5,7 @@ const Match = require('../models/Match');
 const User = require('../models/User');
 const Trade = require('../models/Trade');
 const Asset = require('../models/Asset');
+const Order = require('../models/Order');
 
 // @route   GET /api/matches/active
 // @desc    Get user's active matches
@@ -43,6 +44,32 @@ router.get('/history', auth, async (req, res) => {
     .skip(skip)
     .limit(parseInt(limit));
 
+    // Add result field to each match
+    const matchesWithResults = matches.map(match => {
+      const matchObj = match.toObject();
+      const userPlayer = match.players.find(p => p.user._id.toString() === req.user.id);
+      const opponentPlayer = match.players.find(p => p.user._id.toString() !== req.user.id);
+      
+      // Determine result based on winner
+      if (match.winner && match.winner.toString() === req.user.id) {
+        matchObj.result = 'win';
+        matchObj.profit = userPlayer.realizedPnL || 0;
+      } else if (match.winner && match.winner.toString() !== req.user.id) {
+        matchObj.result = 'loss';
+        matchObj.profit = userPlayer.realizedPnL || 0;
+      } else {
+        matchObj.result = 'draw';
+        matchObj.profit = 0;
+      }
+      
+      // Add opponent info
+      matchObj.opponent = opponentPlayer?.username || 'Unknown';
+      matchObj.asset = 'BTC/USD'; // Default asset
+      matchObj.duration = matchObj.duration || 5; // Default duration
+      
+      return matchObj;
+    });
+
     const total = await Match.countDocuments({
       'players.user': req.user.id,
       status: 'completed'
@@ -50,7 +77,7 @@ router.get('/history', auth, async (req, res) => {
 
     res.json({ 
       success: true, 
-      matches,
+      matches: matchesWithResults,
       pagination: {
         current: parseInt(page),
         pages: Math.ceil(total / limit),
@@ -363,6 +390,24 @@ router.post('/:id/quit', auth, async (req, res) => {
 
     await match.save();
 
+    // Notify match connection service to end match
+    try {
+      await fetch('http://localhost:5002/end-match', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          matchId: id,
+          reason: 'quit',
+          userId: userId
+        })
+      });
+      console.log(`🏁 Notified match connection service to end match ${id} due to quit`);
+    } catch (error) {
+      console.error('❌ Error notifying match connection service:', error);
+    }
+
     res.json({ success: true, message: 'Match quit successfully' });
   } catch (err) {
     console.error(err.message);
@@ -414,6 +459,27 @@ router.post('/:id/end', auth, async (req, res) => {
 
     await match.save();
 
+    // Notify match connection service to end match
+    try {
+      await fetch('http://localhost:5002/end-match', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          matchId: id,
+          reason: 'manual_end',
+          userId: userId
+        })
+      });
+      console.log(`🏁 Notified match connection service to end match ${id}`);
+    } catch (error) {
+      console.error('❌ Error notifying match connection service:', error);
+    }
+
+    // Cancel all open orders for this match
+    await cancelMatchOrders(id);
+
     // Update user stats
     if (winner === userId) {
       await User.findByIdAndUpdate(userId, { $inc: { 'stats.wins': 1, 'stats.currentStreak': 1 } });
@@ -428,5 +494,43 @@ router.post('/:id/end', auth, async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
+
+// Helper function to cancel all open orders for a match
+async function cancelMatchOrders(matchId) {
+  try {
+    console.log(`🚫 Cancelling all open orders for match ${matchId}`);
+    
+    // Cancel all pending orders for this match
+    const cancelledOrders = await Order.updateMany({
+      match: matchId,
+      status: 'pending'
+    }, {
+      status: 'cancelled',
+      cancelledAt: new Date(),
+      cancelReason: 'match_ended'
+    });
+
+    console.log(`✅ Cancelled ${cancelledOrders.modifiedCount} orders for match ${matchId}`);
+    
+    // Notify order execution service to stop processing orders for this match
+    try {
+      await fetch('http://localhost:5001/notify-match-ended', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          matchId: matchId
+        })
+      });
+      console.log(`📨 Notified execution service of match end for ${matchId}`);
+    } catch (error) {
+      console.error('❌ Error notifying execution service:', error);
+    }
+    
+  } catch (error) {
+    console.error('❌ Error cancelling match orders:', error);
+  }
+}
 
 module.exports = router;

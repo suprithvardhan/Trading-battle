@@ -11,7 +11,7 @@ import {
   Users
 } from 'lucide-react'
 
-const MatchHeader = ({ matchData, userPlayer, opponentPlayer, onQuit }) => {
+const MatchHeader = ({ matchData, userPlayer, opponentPlayer, onQuit, optimisticBalance }) => {
   const { isDark } = useTheme()
   const [timeRemaining, setTimeRemaining] = useState(0)
   const [matchProgress, setMatchProgress] = useState(0)
@@ -168,7 +168,7 @@ const MatchHeader = ({ matchData, userPlayer, opponentPlayer, onQuit }) => {
                 <div className={`text-lg font-bold transition-colors duration-300 ${
                   isDark ? 'text-white' : 'text-gray-900'
                 }`}>
-                  ${userPlayer?.currentBalance?.toLocaleString() || '0'}
+                  ${(optimisticBalance !== null ? optimisticBalance : userPlayer?.currentBalance || 0).toLocaleString()}
                 </div>
                 <div className={`text-sm flex items-center space-x-1 ${
                   (userPlayer?.profit || 0) >= 0 ? 'text-green-500' : 'text-red-500'
@@ -192,7 +192,7 @@ const MatchHeader = ({ matchData, userPlayer, opponentPlayer, onQuit }) => {
               <div 
                 className="h-full bg-blue-500 transition-all duration-300"
                 style={{ 
-                  width: `${Math.min(100, ((userPlayer?.currentBalance || 0) / 10000) * 100)}%` 
+                  width: `${Math.min(100, ((optimisticBalance !== null ? optimisticBalance : userPlayer?.currentBalance || 0) / 10000) * 100)}%` 
                 }}
               />
             </div>
