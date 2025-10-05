@@ -51,6 +51,22 @@ class MatchConnectionService {
       this.notifySubscribers('join_error', data);
     });
 
+    // Listen for balance update events
+    this.socket.on('balance_updated', (data) => {
+      console.log('💰 Balance update received in matchConnectionService:', data);
+      this.notifySubscribers('balance_updated', data);
+    });
+
+    // Listen for test balance update events
+    this.socket.on('test_balance_update', (data) => {
+      console.log('🧪 Test balance update received in matchConnectionService:', data);
+    });
+
+    // Listen for any other events for debugging
+    this.socket.onAny((eventName, ...args) => {
+      console.log(`🔍 Match service event received: ${eventName}`, args);
+    });
+
     this.socket.on('user_joined', (data) => {
       console.log('👤 User joined match:', data);
       this.notifySubscribers('user_joined', data);

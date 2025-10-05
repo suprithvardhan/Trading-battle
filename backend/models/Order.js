@@ -148,9 +148,33 @@ orderSchema.methods.execute = function(executionPrice, executionQuantity) {
 };
 
 // Method to cancel order
-orderSchema.methods.cancel = function() {
+orderSchema.methods.cancel = async function() {
   this.status = 'cancelled';
+  this.cancelledAt = new Date();
+  this.cancelReason = 'user_cancelled';
   this.updatedAt = new Date();
+  
+  // Calculate margin to return
+  const marginRequired = (this.quantity * this.price) / this.leverage;
+  
+  // Return margin to user's global balance
+  const User = require('./User');
+  await User.findByIdAndUpdate(this.user, {
+    $inc: { balance: marginRequired }
+  });
+  
+  // Return margin to match balance
+  const Match = require('./Match');
+  await Match.findByIdAndUpdate(this.match, {
+    $inc: { 
+      'players.$[elem].currentBalance': marginRequired
+    }
+  }, {
+    arrayFilters: [{ 'elem.user': this.user }]
+  });
+  
+  console.log(`💰 Returning margin ${marginRequired} to user ${this.user} for cancelled order ${this._id}`);
+  
   return this.save();
 };
 

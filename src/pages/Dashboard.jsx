@@ -25,7 +25,7 @@ import {
 } from 'lucide-react'
 
 const Dashboard = () => {
-  const { user } = useAuth()
+  const { user, refreshUser } = useAuth()
   const { isDark } = useTheme()
   const [recentMatches, setRecentMatches] = useState([])
   const [isSearching, setIsSearching] = useState(false)
@@ -38,13 +38,24 @@ const Dashboard = () => {
     const fetchDashboardData = async () => {
       try {
         setLoading(true)
-        const [statsRes, matchesRes] = await Promise.all([
+        const [statsRes, matchesRes, userRes] = await Promise.all([
           api.get('/dashboard/stats'),
-          api.get('/dashboard/recent-matches')
+          api.get('/dashboard/recent-matches'),
+          api.get('/auth/me') // Fetch fresh user data including updated balance
         ])
         
         if (statsRes.data.success) {
           setStats(statsRes.data.stats)
+        }
+        
+        if (userRes.data.success) {
+          // Update user context with fresh balance
+          const { user: freshUser } = userRes.data
+          if (freshUser && user) {
+            console.log('💰 Updated user balance from', user.balance, 'to', freshUser.balance)
+            // Refresh user data in context
+            await refreshUser()
+          }
         }
         
         if (matchesRes.data.success) {

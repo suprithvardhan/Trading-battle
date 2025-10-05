@@ -15,6 +15,29 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true)
   const [token, setToken] = useState(localStorage.getItem('token'))
 
+  // Function to refresh user data
+  const refreshUser = async () => {
+    if (token) {
+      try {
+        const response = await fetch('http://localhost:5000/api/auth/me', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        })
+        
+        if (response.ok) {
+          const data = await response.json()
+          if (data.success) {
+            setUser(data.user)
+            console.log('💰 User data refreshed, new balance:', data.user.balance)
+          }
+        }
+      } catch (error) {
+        console.error('Failed to refresh user data:', error)
+      }
+    }
+  }
+
   // Check if user is logged in on app start
   useEffect(() => {
     const checkAuth = async () => {
@@ -111,6 +134,7 @@ export const AuthProvider = ({ children }) => {
     login,
     register,
     logout,
+    refreshUser,
     isAuthenticated: !!user
   }
 

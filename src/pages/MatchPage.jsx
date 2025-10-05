@@ -195,18 +195,30 @@ const MatchPage = () => {
       // Subscribe to balance update events
       unsubscribeBalanceUpdated = matchConnectionService.subscribe('balance_updated', (data) => {
         console.log('💰 Balance update notification received:', data)
+        console.log('💰 Current user ID:', user.id, 'Data user ID:', data.userId)
+        console.log('💰 Match ID:', matchData._id, 'Data match ID:', data.matchId)
+        console.log('💰 Notification timestamp:', data.timestamp)
         
         // Update opponent's balance in real-time
         if (data.userId !== user.id) {
           console.log(`📊 Updating opponent balance: ${data.newBalance}`)
-          setMatchData(prevData => ({
-            ...prevData,
-            players: prevData.players.map(player => 
-              player.user._id === data.userId 
-                ? { ...player, currentBalance: data.newBalance, realizedPnL: data.realizedPnL }
-                : player
-            )
-          }))
+          setMatchData(prevData => {
+            const updatedData = {
+              ...prevData,
+              players: prevData.players.map(player => {
+                const playerUserId = player.user._id ? player.user._id.toString() : player.user.toString();
+                if (playerUserId === data.userId) {
+                  console.log(`📊 Updating player ${playerUserId} balance from ${player.currentBalance} to ${data.newBalance}`)
+                  return { ...player, currentBalance: data.newBalance, realizedPnL: data.realizedPnL }
+                }
+                return player
+              })
+            }
+            console.log('📊 Updated match data:', updatedData)
+            return updatedData
+          })
+        } else {
+          console.log('📊 Balance update is for current user, skipping opponent update')
         }
       })
 
@@ -215,20 +227,23 @@ const MatchPage = () => {
         console.log('🏁 Match ended notification received:', data)
         
         // Set match result and show overlay
-        // Map the data correctly based on current user
-        const isCurrentUserWinner = data.result.winner === user.id
+        // The backend sends data in a specific order, we need to map it correctly
         const currentUserPlayer = matchData.players.find(p => p.user._id === user.id)
         const opponentPlayer = matchData.players.find(p => p.user._id !== user.id)
         
+        // The backend sends userBalance/opponentBalance based on database order
+        // We need to map them to the current user's perspective
+        const isCurrentUserFirst = currentUserPlayer === matchData.players[0]
+        
         setMatchResult({
           winner: data.result.winner,
-          // Map balances correctly based on current user
-          userBalance: isCurrentUserWinner ? data.result.userBalance : data.result.opponentBalance,
-          opponentBalance: isCurrentUserWinner ? data.result.opponentBalance : data.result.userBalance,
-          userRealizedPnL: isCurrentUserWinner ? data.result.userRealizedPnL : data.result.opponentRealizedPnL,
-          opponentRealizedPnL: isCurrentUserWinner ? data.result.opponentRealizedPnL : data.result.userRealizedPnL,
-          userTrades: isCurrentUserWinner ? data.result.userTrades : data.result.opponentTrades,
-          opponentTrades: isCurrentUserWinner ? data.result.opponentTrades : data.result.userTrades,
+          // Map balances based on player order in database
+          userBalance: isCurrentUserFirst ? data.result.userBalance : data.result.opponentBalance,
+          opponentBalance: isCurrentUserFirst ? data.result.opponentBalance : data.result.userBalance,
+          userRealizedPnL: isCurrentUserFirst ? data.result.userRealizedPnL : data.result.opponentRealizedPnL,
+          opponentRealizedPnL: isCurrentUserFirst ? data.result.opponentRealizedPnL : data.result.userRealizedPnL,
+          userTrades: isCurrentUserFirst ? data.result.userTrades : data.result.opponentTrades,
+          opponentTrades: isCurrentUserFirst ? data.result.opponentTrades : data.result.userTrades,
           duration: '5:00',
           opponent: opponentPlayer,
           startingBalance: currentUserPlayer?.startingBalance || 10000,

@@ -173,6 +173,47 @@ class MatchRoomManager {
     try {
       console.log(`🚫 Cancelling all orders for match ${matchId}`);
       
+      // First, get all pending orders to calculate total margin to return
+      const pendingOrders = await Order.find({
+        match: matchId,
+        status: 'pending'
+      });
+
+      console.log(`📊 Found ${pendingOrders.length} pending orders to cancel`);
+
+      // Calculate total margin to return for each user
+      const marginReturns = {};
+      for (const order of pendingOrders) {
+        const marginRequired = (order.quantity * order.price) / order.leverage;
+        if (!marginReturns[order.user]) {
+          marginReturns[order.user] = 0;
+        }
+        marginReturns[order.user] += marginRequired;
+        console.log(`💰 Order ${order._id}: Returning margin ${marginRequired} to user ${order.user}`);
+      }
+
+      // Return margin to users' global balance
+      for (const [userId, totalMargin] of Object.entries(marginReturns)) {
+        console.log(`💰 Returning total margin ${totalMargin} to user ${userId}`);
+        await User.findByIdAndUpdate(userId, {
+          $inc: { balance: totalMargin }
+        });
+        
+        // Also return margin to match balance
+        await Match.findByIdAndUpdate(matchId, {
+          $inc: { 
+            'players.$[elem].currentBalance': totalMargin
+          }
+        }, {
+          arrayFilters: [{ 'elem.user': userId }]
+        });
+
+        // Notify about balance update
+        await this.notifyBalanceUpdate(matchId, userId, 
+          await this.getUpdatedMatchBalance(matchId, userId), 0);
+      }
+
+      // Now cancel the orders
       const cancelledOrders = await Order.updateMany({
         match: matchId,
         status: 'pending'
@@ -188,21 +229,53 @@ class MatchRoomManager {
     }
   }
 
+  // Helper function to get updated match balance
+  async getUpdatedMatchBalance(matchId, userId) {
+    try {
+      const match = await Match.findById(matchId);
+      const player = match.players.find(p => p.user.toString() === userId.toString());
+      return player ? player.currentBalance : 0;
+    } catch (error) {
+      console.error('❌ Error getting updated match balance:', error);
+      return 0;
+    }
+  }
+
   // Notify all users in a match about balance changes
   async notifyBalanceUpdate(matchId, userId, newBalance, realizedPnL = 0) {
     try {
       console.log(`📢 Notifying match ${matchId} about balance update for user ${userId}: ${newBalance}`);
       
+      // Check if room exists
+      const room = this.rooms.get(matchId);
+      if (!room) {
+        console.log(`⚠️ Room ${matchId} not found for balance update notification`);
+        return;
+      }
+      
+      console.log(`📊 Room ${matchId} has ${room.users.size} users`);
+      
       // Emit to all users in the match room
-      io.to(`match_${matchId}`).emit('balance_updated', {
+      const notificationData = {
         matchId,
         userId,
         newBalance,
         realizedPnL,
         timestamp: new Date()
-      });
+      };
       
-      console.log(`✅ Balance update notification sent for match ${matchId}`);
+      // Send test event first to verify connection
+      io.to(`match_${matchId}`).emit('test_balance_update', { message: 'Test balance update', matchId });
+      
+      // Send actual balance update
+      io.to(`match_${matchId}`).emit('balance_updated', notificationData);
+      
+      console.log(`✅ Balance update notification sent for match ${matchId} to room match_${matchId}`);
+      console.log(`📊 Notification data:`, notificationData);
+      
+      // Also log all connected sockets in this room
+      const roomSockets = await io.in(`match_${matchId}`).fetchSockets();
+      console.log(`📊 Room ${matchId} has ${roomSockets.length} connected sockets`);
     } catch (error) {
       console.error('❌ Error notifying balance update:', error);
     }
@@ -506,10 +579,12 @@ app.post('/notify-balance-update', async (req, res) => {
     const { matchId, userId, newBalance, realizedPnL } = req.body;
     
     console.log(`📢 Received balance update notification for match ${matchId}, user ${userId}: ${newBalance}`);
+    console.log(`📊 Request body:`, req.body);
     
     // Notify all users in the match about the balance update
     await roomManager.notifyBalanceUpdate(matchId, userId, newBalance, realizedPnL);
     
+    console.log(`✅ Balance update notification processed for match ${matchId}`);
     res.json({ success: true, message: 'Balance update notification sent' });
   } catch (error) {
     console.error('❌ Error handling balance update notification:', error);

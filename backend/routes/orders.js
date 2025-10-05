@@ -228,7 +228,26 @@ router.put('/:orderId/cancel', auth, async (req, res) => {
       });
     }
 
-    // Update order status directly
+    // Calculate margin to return
+    const marginRequired = (order.quantity * order.price) / order.leverage;
+    
+    // Return margin to user's global balance
+    await User.findByIdAndUpdate(userId, {
+      $inc: { balance: marginRequired }
+    });
+    
+    // Return margin to match balance
+    await Match.findByIdAndUpdate(order.match, {
+      $inc: { 
+        'players.$[elem].currentBalance': marginRequired
+      }
+    }, {
+      arrayFilters: [{ 'elem.user': userId }]
+    });
+    
+    console.log(`💰 Returning margin ${marginRequired} to user ${userId} for cancelled order ${orderId}`);
+    
+    // Update order status
     await Order.findByIdAndUpdate(orderId, {
       status: 'cancelled',
       cancelledAt: new Date(),
