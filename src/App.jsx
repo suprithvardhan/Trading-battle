@@ -16,6 +16,7 @@ import Logo from './components/Logo'
 import ThemeToggle from './components/ThemeToggle'
 import { ThemeProvider, useTheme } from './contexts/ThemeContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { ToastProvider } from './contexts/ToastContext'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
 import DashboardLayout from './pages/DashboardLayout'
@@ -534,7 +535,8 @@ function App() {
     <Router>
       <ThemeProvider>
         <AuthProvider>
-          <Routes>
+          <ToastProvider>
+            <Routes>
             <Route path="/" element={<MainApp />} />
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
@@ -552,6 +554,7 @@ function App() {
             <Route path="/demochart" element={<DemoChart />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          </ToastProvider>
         </AuthProvider>
       </ThemeProvider>
     </Router>

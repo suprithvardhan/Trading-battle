@@ -112,7 +112,10 @@ class MatchRoomManager {
 
   async closeRoom(matchId, reason = 'time_ended') {
     const room = this.rooms.get(matchId);
-    if (!room) return;
+    if (!room) {
+      console.log(`⚠️ Room ${matchId} already closed or doesn't exist`);
+      return;
+    }
 
     console.log(`🏁 Closing match room ${matchId} - Reason: ${reason}`);
     
@@ -185,6 +188,26 @@ class MatchRoomManager {
     }
   }
 
+  // Notify all users in a match about balance changes
+  async notifyBalanceUpdate(matchId, userId, newBalance, realizedPnL = 0) {
+    try {
+      console.log(`📢 Notifying match ${matchId} about balance update for user ${userId}: ${newBalance}`);
+      
+      // Emit to all users in the match room
+      io.to(`match_${matchId}`).emit('balance_updated', {
+        matchId,
+        userId,
+        newBalance,
+        realizedPnL,
+        timestamp: new Date()
+      });
+      
+      console.log(`✅ Balance update notification sent for match ${matchId}`);
+    } catch (error) {
+      console.error('❌ Error notifying balance update:', error);
+    }
+  }
+
   async closeMatchPositions(matchId) {
     try {
       console.log(`🔄 Closing all positions for match ${matchId}`);
@@ -193,6 +216,8 @@ class MatchRoomManager {
         match: matchId,
         status: 'open'
       });
+
+      console.log(`📊 Found ${positions.length} open positions to close`);
 
       for (const position of positions) {
         console.log(`🔄 Processing position ${position._id} for user ${position.user}`);
@@ -221,14 +246,23 @@ class MatchRoomManager {
           realizedPnL: realizedPnL
         });
 
-        // Calculate total return (margin + PnL)
+        // For match end, we need to return margin + PnL
+        // The margin was deducted when position was opened, so we need to return it
         const totalReturn = position.margin + realizedPnL;
         console.log(`💰 Position ${position._id}: Margin=${position.margin}, PnL=${realizedPnL}, Total Return=${totalReturn}`);
+
+        // Get current user balance before update
+        const userBefore = await User.findById(position.user);
+        console.log(`💰 User ${position.user} balance before: ${userBefore.balance}`);
 
         // Update user balance with total return (margin + PnL)
         await User.findByIdAndUpdate(position.user, {
           $inc: { balance: totalReturn }
         });
+
+        // Get updated user balance
+        const userAfter = await User.findById(position.user);
+        console.log(`💰 User ${position.user} balance after: ${userAfter.balance} (added: ${totalReturn})`);
 
         // Update match balance with total return
         await Match.findByIdAndUpdate(matchId, {
@@ -239,6 +273,13 @@ class MatchRoomManager {
         }, {
           arrayFilters: [{ 'elem.user': position.user }]
         });
+
+        // Get updated match data to get the new balance
+        const updatedMatch = await Match.findById(matchId);
+        const updatedPlayer = updatedMatch.players.find(p => p.user.toString() === position.user.toString());
+        
+        // Notify all users in the match about the balance update
+        await this.notifyBalanceUpdate(matchId, position.user, updatedPlayer.currentBalance, realizedPnL);
 
         console.log(`💰 Position ${position._id} closed: Total Return = ${totalReturn}`);
       }
@@ -282,11 +323,18 @@ class MatchRoomManager {
         opponentRealizedPnL: match.players[1].realizedPnL
       });
 
-      const userPlayer = match.players[0];
-      const opponentPlayer = match.players[1];
+      // For time-ended matches, compare realized PnL to determine winner
+      // Use the first two players (no need to identify specific user/opponent for time-ended)
+      const player1 = match.players[0];
+      const player2 = match.players[1];
 
-      const userBalance = userPlayer.currentBalance;
-      const opponentBalance = opponentPlayer.currentBalance;
+      if (!player1 || !player2) {
+        console.error('❌ Could not find both players');
+        return null;
+      }
+
+      const userBalance = player1.currentBalance;
+      const opponentBalance = player2.currentBalance;
 
       let winner = null;
       let result = 'draw';
@@ -295,37 +343,37 @@ class MatchRoomManager {
       switch (reason) {
         case 'user_quit':
           // User quit, opponent wins
-          winner = opponentPlayer.user._id;
+          winner = player2.user._id;
           result = 'opponent_wins';
           break;
         case 'opponent_quit':
           // Opponent quit, user wins
-          winner = userPlayer.user._id;
+          winner = player1.user._id;
           result = 'user_wins';
           break;
         case 'user_doubled':
           // User doubled balance, user wins
-          winner = userPlayer.user._id;
+          winner = player1.user._id;
           result = 'user_wins';
           break;
         case 'opponent_doubled':
           // Opponent doubled balance, opponent wins
-          winner = opponentPlayer.user._id;
+          winner = player2.user._id;
           result = 'opponent_wins';
           break;
         case 'time_ended':
           // For time ended, compare realized PnL (trading performance)
-          const userRealizedPnL = userPlayer.realizedPnL || 0;
-          const opponentRealizedPnL = opponentPlayer.realizedPnL || 0;
+          const userRealizedPnL = player1.realizedPnL || 0;
+          const opponentRealizedPnL = player2.realizedPnL || 0;
           
           console.log(`📊 Time ended - Comparing realized PnL:`);
-          console.log(`User: ${userRealizedPnL}, Opponent: ${opponentRealizedPnL}`);
+          console.log(`Player1: ${userRealizedPnL}, Player2: ${opponentRealizedPnL}`);
           
           if (userRealizedPnL > opponentRealizedPnL) {
-            winner = userPlayer.user._id;
+            winner = player1.user._id;
             result = 'user_wins';
           } else if (opponentRealizedPnL > userRealizedPnL) {
-            winner = opponentPlayer.user._id;
+            winner = player2.user._id;
             result = 'opponent_wins';
           }
           // If equal, result remains 'draw'
@@ -348,11 +396,14 @@ class MatchRoomManager {
         result,
         userBalance,
         opponentBalance,
-        userRealizedPnL: userPlayer.realizedPnL || 0,
-        opponentRealizedPnL: opponentPlayer.realizedPnL || 0,
-        userTrades: userPlayer.trades?.length || 0,
-        opponentTrades: opponentPlayer.trades?.length || 0,
-        reason
+        userRealizedPnL: player1.realizedPnL || 0,
+        opponentRealizedPnL: player2.realizedPnL || 0,
+        userTrades: player1.trades?.length || 0,
+        opponentTrades: player2.trades?.length || 0,
+        reason,
+        // Add user identification for frontend
+        userId: player1.user._id,
+        opponentId: player2.user._id
       };
     } catch (error) {
       console.error('❌ Error determining match winner:', error);
@@ -446,6 +497,23 @@ app.post('/create-room', async (req, res) => {
   } catch (error) {
     console.error('❌ Error creating match room:', error);
     res.status(500).json({ success: false, message: 'Error creating match room' });
+  }
+});
+
+// API endpoint to notify balance updates
+app.post('/notify-balance-update', async (req, res) => {
+  try {
+    const { matchId, userId, newBalance, realizedPnL } = req.body;
+    
+    console.log(`📢 Received balance update notification for match ${matchId}, user ${userId}: ${newBalance}`);
+    
+    // Notify all users in the match about the balance update
+    await roomManager.notifyBalanceUpdate(matchId, userId, newBalance, realizedPnL);
+    
+    res.json({ success: true, message: 'Balance update notification sent' });
+  } catch (error) {
+    console.error('❌ Error handling balance update notification:', error);
+    res.status(500).json({ success: false, message: 'Error sending balance update notification' });
   }
 });
 

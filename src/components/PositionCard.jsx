@@ -10,7 +10,7 @@ import {
   Shield
 } from 'lucide-react'
 
-const PositionCard = ({ position, onClose, onUpdateLeverage, onUpdateTPSL }) => {
+const PositionCard = ({ position, onClose, onUpdateLeverage, onUpdateTPSL, isClosing = false }) => {
   const { isDark } = useTheme()
   const [showTPSLModal, setShowTPSLModal] = useState(false)
   const [takeProfitPrice, setTakeProfitPrice] = useState(position.takeProfitPrice || '')
@@ -259,14 +259,26 @@ const PositionCard = ({ position, onClose, onUpdateLeverage, onUpdateTPSL }) => 
           </button>
           <button
             onClick={handleClosePosition}
+            disabled={isClosing}
             className={`flex-1 py-2 px-3 rounded text-sm font-medium transition-colors duration-300 ${
-              position.side === 'long'
-                ? 'bg-red-600 text-white hover:bg-red-700'
-                : 'bg-green-600 text-white hover:bg-green-700'
+              isClosing 
+                ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                : position.side === 'long'
+                  ? 'bg-red-600 text-white hover:bg-red-700'
+                  : 'bg-green-600 text-white hover:bg-green-700'
             }`}
           >
-            <X className="w-4 h-4 inline mr-1" />
-            Close
+            {isClosing ? (
+              <>
+                <div className="w-4 h-4 inline mr-1 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Closing...
+              </>
+            ) : (
+              <>
+                <X className="w-4 h-4 inline mr-1" />
+                Close
+              </>
+            )}
           </button>
         </div>
       </motion.div>

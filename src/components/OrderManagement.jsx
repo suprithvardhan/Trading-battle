@@ -16,7 +16,7 @@ import {
 import axios from 'axios'
 import PositionCard from './PositionCard'
 
-const OrderManagement = ({ activeTab, onTabChange, orders, positions, matchId, onPositionClose, onPositionUpdate, onRefreshOrders }) => {
+const OrderManagement = ({ activeTab, onTabChange, orders, positions, matchId, onPositionClose, onPositionUpdate, onRefreshOrders, closingPosition }) => {
   const { isDark } = useTheme()
   const [filter, setFilter] = useState('all') // all, buy, sell
   const [loading, setLoading] = useState(false)
@@ -246,6 +246,7 @@ const OrderManagement = ({ activeTab, onTabChange, orders, positions, matchId, o
                   onClose={onPositionClose}
                   onUpdateLeverage={(positionId, leverage) => onPositionUpdate(positionId, { leverage })}
                   onUpdateTPSL={(positionId, tp, sl) => onPositionUpdate(positionId, { takeProfitPrice: tp, stopLossPrice: sl })}
+                  isClosing={closingPosition === position._id}
                 />
               ))}
             </div>

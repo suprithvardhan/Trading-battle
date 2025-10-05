@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTheme } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
+import { useToast } from '../contexts/ToastContext'
 import api from '../utils/api'
 import MatchResultOverlay from '../components/MatchResultOverlay'
 import { 
@@ -32,6 +33,7 @@ import PositionCard from '../components/PositionCard'
 const MatchPage = () => {
   const { isDark } = useTheme()
   const { user } = useAuth()
+  const { showSuccess, showError } = useToast()
   const [matchData, setMatchData] = useState(null)
   const [selectedTicker, setSelectedTicker] = useState('BTCUSDT')
   const [tickerData, setTickerData] = useState(null)
@@ -48,6 +50,7 @@ const MatchPage = () => {
   const [matchResult, setMatchResult] = useState(null)
   const [matchEnded, setMatchEnded] = useState(false)
   const [optimisticBalance, setOptimisticBalance] = useState(null)
+  const [closingPosition, setClosingPosition] = useState(null)
 
   // Derive userPlayer and opponentPlayer from matchData
   const userPlayer = matchData?.players?.find(p => {
@@ -183,28 +186,53 @@ const MatchPage = () => {
     console.log(`🔌 Connecting to match connection service for user ${user.id}, match ${matchData._id}`)
     
     let unsubscribeMatchEnded = null
+    let unsubscribeBalanceUpdated = null
     
     // Import and connect to match connection service
     import('../services/matchConnectionService').then(({ default: matchConnectionService }) => {
       matchConnectionService.connect(user.id, matchData._id)
       
+      // Subscribe to balance update events
+      unsubscribeBalanceUpdated = matchConnectionService.subscribe('balance_updated', (data) => {
+        console.log('💰 Balance update notification received:', data)
+        
+        // Update opponent's balance in real-time
+        if (data.userId !== user.id) {
+          console.log(`📊 Updating opponent balance: ${data.newBalance}`)
+          setMatchData(prevData => ({
+            ...prevData,
+            players: prevData.players.map(player => 
+              player.user._id === data.userId 
+                ? { ...player, currentBalance: data.newBalance, realizedPnL: data.realizedPnL }
+                : player
+            )
+          }))
+        }
+      })
+
       // Subscribe to match ended events
       unsubscribeMatchEnded = matchConnectionService.subscribe('match_ended', (data) => {
         console.log('🏁 Match ended notification received:', data)
         
         // Set match result and show overlay
+        // Map the data correctly based on current user
+        const isCurrentUserWinner = data.result.winner === user.id
+        const currentUserPlayer = matchData.players.find(p => p.user._id === user.id)
+        const opponentPlayer = matchData.players.find(p => p.user._id !== user.id)
+        
         setMatchResult({
           winner: data.result.winner,
-          userBalance: data.result.userBalance,
-          opponentBalance: data.result.opponentBalance,
-          userRealizedPnL: data.result.userRealizedPnL || 0,
-          opponentRealizedPnL: data.result.opponentRealizedPnL || 0,
-          userTrades: data.result.userTrades,
-          opponentTrades: data.result.opponentTrades,
+          // Map balances correctly based on current user
+          userBalance: isCurrentUserWinner ? data.result.userBalance : data.result.opponentBalance,
+          opponentBalance: isCurrentUserWinner ? data.result.opponentBalance : data.result.userBalance,
+          userRealizedPnL: isCurrentUserWinner ? data.result.userRealizedPnL : data.result.opponentRealizedPnL,
+          opponentRealizedPnL: isCurrentUserWinner ? data.result.opponentRealizedPnL : data.result.userRealizedPnL,
+          userTrades: isCurrentUserWinner ? data.result.userTrades : data.result.opponentTrades,
+          opponentTrades: isCurrentUserWinner ? data.result.opponentTrades : data.result.userTrades,
           duration: '5:00',
-          opponent: matchData.players.find(p => p.user._id !== user.id),
-          startingBalance: matchData.players.find(p => p.user._id === user.id)?.startingBalance || 10000,
-          opponentStartingBalance: matchData.players.find(p => p.user._id !== user.id)?.startingBalance || 10000,
+          opponent: opponentPlayer,
+          startingBalance: currentUserPlayer?.startingBalance || 10000,
+          opponentStartingBalance: opponentPlayer?.startingBalance || 10000,
           reason: data.reason,
           message: data.message
         })
@@ -216,6 +244,7 @@ const MatchPage = () => {
     // Cleanup function
     return () => {
       if (unsubscribeMatchEnded) unsubscribeMatchEnded()
+      if (unsubscribeBalanceUpdated) unsubscribeBalanceUpdated()
       
       import('../services/matchConnectionService').then(({ default: matchConnectionService }) => {
         matchConnectionService.disconnect()
@@ -420,83 +449,8 @@ const MatchPage = () => {
     }
   }, [])
 
-  // Check for match completion conditions
-  useEffect(() => {
-    if (matchData) {
-      const checkMatchCompletion = () => {
-        // Don't check if match already ended
-        if (matchEnded) return
-        
-        const userPlayer = matchData.players?.find(p => {
-          const playerUserId = p.user._id ? p.user._id.toString() : p.user.toString();
-          return playerUserId === user?.id;
-        })
-        const opponentPlayer = matchData.players?.find(p => {
-          const playerUserId = p.user._id ? p.user._id.toString() : p.user.toString();
-          return playerUserId !== user?.id;
-        })
-        
-        if (userPlayer && opponentPlayer) {
-          // Check if user doubled their amount
-          if (userPlayer.currentBalance >= 20000) {
-            console.log('🎯 User doubled amount - ending match')
-            // Notify match connection service
-            fetch('http://localhost:5002/end-match', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                matchId: matchData._id,
-                reason: 'user_doubled',
-                userId: user.id
-              })
-            }).catch(console.error)
-            return
-          }
-          
-          // Check if opponent doubled their amount
-          if (opponentPlayer.currentBalance >= 20000) {
-            console.log('🎯 Opponent doubled amount - ending match')
-            // Notify match connection service
-            fetch('http://localhost:5002/end-match', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                matchId: matchData._id,
-                reason: 'opponent_doubled',
-                userId: user.id
-              })
-            }).catch(console.error)
-            return
-          }
-          
-          // Check if time is up (5 minutes)
-          const matchStartTime = new Date(matchData.startTime)
-          const currentTime = new Date()
-          const elapsedMinutes = (currentTime - matchStartTime) / (1000 * 60)
-          
-          console.log(`⏰ Match time check: ${elapsedMinutes.toFixed(2)} minutes elapsed`)
-          
-          if (elapsedMinutes >= 5) {
-            console.log('⏰ Time up - ending match')
-            // Notify match connection service
-            fetch('http://localhost:5002/end-match', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                matchId: matchData._id,
-                reason: 'time_ended',
-                userId: user.id
-              })
-            }).catch(console.error)
-          }
-        }
-      }
-
-      // Check every 1 second for more responsive timer
-      const interval = setInterval(checkMatchCompletion, 1000)
-      return () => clearInterval(interval)
-    }
-  }, [matchData, user, matchEnded])
+  // Note: Match timing is now handled by the match-connection-service
+  // Frontend only listens for match_ended events
 
   const endMatch = async (winner, userPlayer, opponentPlayer) => {
     // Prevent multiple calls
@@ -539,13 +493,25 @@ const MatchPage = () => {
   }
 
   const handlePositionClose = useCallback(async (positionId) => {
+    // Prevent multiple close attempts
+    if (closingPosition === positionId) {
+      console.log('⚠️ Position close already in progress')
+      return
+    }
+
     try {
+      setClosingPosition(positionId)
       console.log(`🔄 Closing position ${positionId}`)
       
       // Find the position to close
       const position = positions.find(pos => pos._id === positionId)
       if (!position) {
         console.error('Position not found')
+        showError(
+          'Position Not Found',
+          'The position you are trying to close no longer exists.',
+          4000
+        )
         return
       }
 
@@ -553,10 +519,15 @@ const MatchPage = () => {
       const currentPrice = tickerData?.price || position.markPrice
       if (!currentPrice) {
         console.error('Current price not available')
+        showError(
+          'Price Not Available',
+          'Current market price is not available. Please try again.',
+          4000
+        )
         return
       }
 
-      // Closing position
+      console.log(`💰 Closing position at price: ${currentPrice}`)
 
       // Call backend to close position
       const response = await api.post(`/positions/${positionId}/close`, {
@@ -572,6 +543,16 @@ const MatchPage = () => {
         const realizedPnL = response.data.position.realizedPnL || 0
         const margin = response.data.position.margin || 0
         
+        // Show success toast with position close details
+        const isProfit = realizedPnL > 0
+        const pnlText = isProfit ? `+$${realizedPnL.toFixed(2)}` : `-$${Math.abs(realizedPnL).toFixed(2)}`
+        
+        showSuccess(
+          `Position Closed Successfully`,
+          `${position.symbol} ${position.side.toUpperCase()} • ${pnlText} PnL • Total Return: $${totalReturn.toFixed(2)}`,
+          6000 // 6 second duration for important feedback
+        )
+        
         // Position closed with total return
         
         // Remove position from frontend state
@@ -579,7 +560,9 @@ const MatchPage = () => {
         
         // Update balance optimistically with total return (margin + PnL)
         if (matchData && userPlayer) {
-          const newBalance = (userPlayer.currentBalance || 0) + totalReturn
+          const currentBalance = userPlayer.currentBalance || 0
+          const newBalance = currentBalance + totalReturn
+          console.log(`💰 Balance update: ${currentBalance} + ${totalReturn} = ${newBalance}`)
           setOptimisticBalance(newBalance)
           // Updated balance optimistically
           
@@ -600,14 +583,37 @@ const MatchPage = () => {
         }, 500)
         
         // Refresh orders and positions to show the new market order in history
-        debouncedFetchOrdersAndPositions()
+        // Add delay to ensure backend processing is complete
+        setTimeout(() => {
+          console.log('🔄 Refreshing orders after position close...')
+          debouncedFetchOrdersAndPositions()
+        }, 1000) // 1 second delay to ensure order is saved
+        
+        // Also try a second refresh after a longer delay to ensure order appears
+        setTimeout(() => {
+          console.log('🔄 Second refresh of orders after position close...')
+          debouncedFetchOrdersAndPositions()
+        }, 2000) // 2 second delay as backup
       } else {
         console.error('Failed to close position:', response.data.message)
+        showError(
+          'Position Close Failed',
+          response.data.message || 'Unable to close position. Please try again.',
+          5000
+        )
       }
     } catch (error) {
       console.error('Error closing position:', error)
+      showError(
+        'Position Close Error',
+        'An error occurred while closing the position. Please try again.',
+        5000
+      )
+    } finally {
+      // Clear the closing state
+      setClosingPosition(null)
     }
-  }, [positions, tickerData, matchData, user])
+  }, [positions, tickerData, matchData, user, closingPosition])
 
   const handlePositionUpdate = useCallback((positionId, updates) => {
     setPositions(prev => prev.map(pos => 
@@ -633,8 +639,9 @@ const MatchPage = () => {
       onPositionClose={handlePositionClose}
       onPositionUpdate={handlePositionUpdate}
       onRefreshOrders={debouncedFetchOrdersAndPositions}
+      closingPosition={closingPosition}
     />
-  ), [activeOrderTab, orders, positions, matchData?._id, handlePositionClose, handlePositionUpdate])
+  ), [activeOrderTab, orders, positions, matchData?._id, handlePositionClose, handlePositionUpdate, closingPosition])
 
   if (loading) {
     return (
@@ -699,6 +706,12 @@ const MatchPage = () => {
               userBalance={getCurrentBalance()}
               matchId={matchData?._id || 'mock-match-id'}
               onOrderPlaced={(marginDeduction) => {
+                // Show success toast for order placement
+                showSuccess(
+                  'Order Placed Successfully',
+                  `Order submitted and margin deducted: $${marginDeduction.toFixed(2)}`,
+                  4000
+                )
                 // Update balance optimistically
                 handleOptimisticBalanceUpdate(marginDeduction)
                 // Update balance only (no full re-render)
@@ -709,6 +722,12 @@ const MatchPage = () => {
                 debouncedFetchOrdersAndPositions()
               }}
               onOrderFailed={() => {
+                // Show error toast for order failure
+                showError(
+                  'Order Failed',
+                  'Unable to place order. Please check your balance and try again.',
+                  5000
+                )
                 // Reset optimistic balance on failure
                 setOptimisticBalance(null)
               }}

@@ -78,6 +78,26 @@ router.post('/:positionId/close', auth, async (req, res) => {
 
     console.log(`💰 Updated match realizedPnL: +${position.unrealizedPnL}`);
 
+    // Get updated match data to get the new balance
+    const updatedMatch = await Match.findById(position.match);
+    const updatedPlayer = updatedMatch.players.find(p => p.user.toString() === position.user.toString());
+    
+    // Notify match connection service about balance update
+    try {
+      await fetch('http://localhost:5002/notify-balance-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          matchId: position.match,
+          userId: position.user,
+          newBalance: updatedPlayer.currentBalance,
+          realizedPnL: updatedPlayer.realizedPnL || 0
+        })
+      });
+    } catch (error) {
+      console.error('❌ Error notifying balance update:', error);
+    }
+
     // Create a market order record for the position close
     const Order = require('../models/Order');
     const closeOrder = new Order({
