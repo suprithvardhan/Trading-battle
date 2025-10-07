@@ -4,6 +4,30 @@ const auth = require('../middleware/auth');
 const Leaderboard = require('../models/Leaderboard');
 const User = require('../models/User');
 
+/**
+ * Leaderboard API Routes
+ * 
+ * This module provides REST API endpoints for leaderboard functionality.
+ * All leaderboard operations are handled through HTTP requests, not hardcoded service calls.
+ * 
+ * Available endpoints:
+ * - GET /api/leaderboard - Get global leaderboard
+ * - GET /api/leaderboard/me - Get current user's ranking
+ * - GET /api/leaderboard/stats - Get leaderboard statistics
+ * - POST /api/leaderboard/update-user - Update specific user's entry
+ * - GET /api/leaderboard/search - Search users in leaderboard
+ */
+
+// Helper function to get the next available rank dynamically
+// This prevents hardcoded rank values and ensures proper ranking
+async function getNextRank(period) {
+  const highestRank = await Leaderboard.findOne({ period })
+    .sort({ rank: -1 })
+    .select('rank');
+  
+  return highestRank ? highestRank.rank + 1 : 1;
+}
+
 // @route   GET /api/leaderboard
 // @desc    Get global leaderboard
 // @access  Public
@@ -192,6 +216,72 @@ router.post('/update', auth, async (req, res) => {
     res.json({ 
       success: true, 
       message: 'Leaderboard updated successfully' 
+    });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// @route   POST /api/leaderboard/update-user
+// @desc    Update specific user's leaderboard entry
+// @access  Private
+router.post('/update-user', auth, async (req, res) => {
+  try {
+    const { userId, period = 'all-time' } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'User ID is required' });
+    }
+
+    // Get user data
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Update or create leaderboard entry
+    const userStats = {
+      winRate: user.stats.winRate || 0,
+      totalMatches: user.stats.totalMatches || 0,
+      wins: user.stats.wins || 0,
+      losses: user.stats.losses || 0,
+      balance: user.balance || 10000,
+      totalProfit: user.stats.totalProfit || 0,
+      currentStreak: user.stats.currentStreak || 0,
+      bestStreak: user.stats.bestStreak || 0,
+      tier: user.tier || 'Bronze',
+      badges: user.badges || []
+    };
+
+    let leaderboardEntry = await Leaderboard.findOne({ 
+      user: userId, 
+      period 
+    });
+
+    if (leaderboardEntry) {
+      await leaderboardEntry.updateMetrics(userStats);
+    } else {
+      // Get the next available rank dynamically
+      const newRank = await getNextRank(period);
+      
+      leaderboardEntry = new Leaderboard({
+        user: userId,
+        username: user.username,
+        period,
+        rank: newRank,
+        ...userStats
+      });
+      await leaderboardEntry.save();
+    }
+
+    // Update rankings for this period
+    await Leaderboard.updateAllRankings(period);
+
+    res.json({ 
+      success: true, 
+      message: 'User leaderboard entry updated successfully',
+      leaderboardEntry 
     });
   } catch (err) {
     console.error(err.message);

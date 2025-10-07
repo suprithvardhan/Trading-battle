@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Eye, EyeOff, ArrowRight } from 'lucide-react'
+import { Eye, EyeOff, ArrowRight, Shield, Zap, Award, Globe } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
 import { useNavigate, Link } from 'react-router-dom'
@@ -33,138 +33,202 @@ const Login = () => {
   }
 
   return (
-    <div className={`min-h-screen flex items-center justify-center p-4 transition-colors duration-300 ${
-      isDark 
-        ? 'bg-gray-900' 
-        : 'bg-white'
-    }`}>
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8 }}
-        className={`relative z-10 w-full max-w-md p-8 rounded-2xl shadow-2xl backdrop-blur-md transition-colors duration-300 ${
-          isDark 
-            ? 'bg-gray-800 border border-gray-700' 
-            : 'bg-white border border-gray-200'
-        }`}
-      >
-        <div className="flex justify-center mb-8">
-          <Logo className="w-16 h-16" isDark={isDark} />
-        </div>
-        <h2 className={`text-3xl font-bold text-center mb-2 transition-colors duration-300 ${
-          isDark ? 'text-white' : 'text-gray-900'
-        }`}>
-          Welcome Back
-        </h2>
-        <p className={`text-center mb-8 transition-colors duration-300 ${
-          isDark ? 'text-gray-300' : 'text-gray-600'
-        }`}>
-          Sign in to continue your trading journey.
-        </p>
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white flex items-center justify-center p-4">
+      {/* Background Elements */}
+      <div className="absolute inset-0 -z-10">
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl"></div>
+        <div className="absolute top-0 right-1/4 w-96 h-96 bg-cyan-500/20 rounded-full blur-3xl"></div>
+        <div className="absolute bottom-0 left-1/2 w-96 h-96 bg-emerald-500/20 rounded-full blur-3xl"></div>
+      </div>
 
-        {formError && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg relative mb-4"
-            role="alert"
-          >
-            <span className="block sm:inline">{formError}</span>
-          </motion.div>
-        )}
-        {error && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg relative mb-4"
-            role="alert"
-          >
-            <span className="block sm:inline">{error}</span>
-          </motion.div>
-        )}
+      <div className="w-full max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
+        {/* Left Side - Branding & Features */}
+        <motion.div
+          initial={{ opacity: 0, x: -50 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.8 }}
+          className="hidden lg:block"
+        >
+          <div className="pr-8">
+            {/* Logo */}
+            <div className="flex items-center space-x-3 mb-8">
+              <Logo className="w-12 h-12" isDark={true} />
+              <span className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-cyan-500 bg-clip-text text-transparent">
+                TradeBattle
+              </span>
+            </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label htmlFor="email" className={`block text-sm font-medium mb-2 transition-colors duration-300 ${
-              isDark ? 'text-gray-300' : 'text-gray-700'
-            }`}>
-              Email Address
-            </label>
-            <input
-              type="email"
-              id="email"
-              className={`w-full px-4 py-3 rounded-lg border focus:ring-2 focus:ring-blue-500 outline-none transition-all duration-200 ${
-                isDark 
-                  ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' 
-                  : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'
-              }`}
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </div>
-          <div>
-            <label htmlFor="password" className={`block text-sm font-medium mb-2 transition-colors duration-300 ${
-              isDark ? 'text-gray-300' : 'text-gray-700'
-            }`}>
-              Password
-            </label>
-            <div className="relative">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                id="password"
-                className={`w-full px-4 py-3 rounded-lg border focus:ring-2 focus:ring-blue-500 outline-none transition-all duration-200 ${
-                  isDark 
-                    ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' 
-                    : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'
-                }`}
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className={`absolute inset-y-0 right-0 pr-3 flex items-center text-sm leading-5 transition-colors duration-300 ${
-                  isDark ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-              </button>
+            <h1 className="text-5xl font-bold mb-6 leading-tight">
+              Welcome Back to
+              <span className="block bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
+                Professional Trading
+              </span>
+            </h1>
+            
+            <p className="text-xl text-slate-300 mb-8 leading-relaxed">
+              Continue your trading journey with real-time market data, competitive battles, and professional tools.
+            </p>
+
+            {/* Features */}
+            <div className="space-y-4 mb-8">
+              {[
+                { icon: Shield, text: "Bank-level security", color: "text-emerald-500" },
+                { icon: Zap, text: "Real-time data", color: "text-yellow-500" },
+                { icon: Award, text: "Free forever", color: "text-blue-500" },
+                { icon: Globe, text: "Global markets", color: "text-cyan-500" }
+              ].map((feature, index) => (
+                <motion.div
+                  key={feature.text}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.6, delay: 0.3 + index * 0.1 }}
+                  className="flex items-center space-x-3"
+                >
+                  <feature.icon className={`w-5 h-5 ${feature.color}`} />
+                  <span className="text-slate-300">{feature.text}</span>
+                </motion.div>
+              ))}
+            </div>
+
+            {/* Stats */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-4 rounded-xl border border-slate-700/50 bg-slate-800/50 backdrop-blur-sm">
+                <div className="text-2xl font-bold text-white">12,847+</div>
+                <div className="text-sm text-slate-400">Active Traders</div>
+              </div>
+              <div className="p-4 rounded-xl border border-slate-700/50 bg-slate-800/50 backdrop-blur-sm">
+                <div className="text-2xl font-bold text-white">99.9%</div>
+                <div className="text-sm text-slate-400">Uptime</div>
+              </div>
             </div>
           </div>
-          <motion.button
-            type="submit"
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg text-lg font-semibold hover:bg-blue-700 transition-all duration-300 shadow-lg flex items-center justify-center space-x-2"
-            disabled={loading}
-          >
-            {loading ? (
-              <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-            ) : (
-              <>
-                <span>Sign In</span>
-                <ArrowRight className="w-5 h-5" />
-              </>
-            )}
-          </motion.button>
-        </form>
+        </motion.div>
 
-        <p className={`mt-8 text-center text-sm transition-colors duration-300 ${
-          isDark ? 'text-gray-300' : 'text-gray-600'
-        }`}>
-          Don't have an account?{' '}
-          <Link to="/signup" className="text-blue-600 hover:underline font-medium">
-            Sign Up
-          </Link>
-        </p>
-      </motion.div>
+        {/* Right Side - Login Form */}
+        <motion.div
+          initial={{ opacity: 0, x: 50 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.8 }}
+          className="w-full max-w-md mx-auto"
+        >
+          <div className="p-8 rounded-3xl border border-slate-700/50 bg-slate-800/50 backdrop-blur-sm shadow-2xl">
+            {/* Mobile Logo */}
+            <div className="flex items-center space-x-3 mb-8 lg:hidden">
+              <Logo className="w-8 h-8" isDark={true} />
+              <span className="text-xl font-bold bg-gradient-to-r from-blue-600 to-cyan-500 bg-clip-text text-transparent">
+                TradeBattle
+              </span>
+            </div>
+
+            <div className="text-center mb-8">
+              <h2 className="text-3xl font-bold mb-2 text-white">Welcome Back</h2>
+              <p className="text-slate-300">Sign in to your account</p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Email Field */}
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-2">
+                  Email Address
+                </label>
+                <input
+                  type="email"
+                  id="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-600 bg-slate-700/50 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
+                  placeholder="Enter your email"
+                  required
+                />
+              </div>
+
+              {/* Password Field */}
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-slate-300 mb-2">
+                  Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    id="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full px-4 py-3 pr-12 rounded-xl border border-slate-600 bg-slate-700/50 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
+                    placeholder="Enter your password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-white transition-colors duration-300"
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Error Message */}
+              {(formError || error) && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm"
+                >
+                  {formError || error}
+                </motion.div>
+              )}
+
+              {/* Submit Button */}
+              <motion.button
+                type="submit"
+                disabled={loading}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="w-full bg-gradient-to-r from-blue-600 to-cyan-500 text-white py-3 px-6 rounded-xl font-semibold hover:from-blue-700 hover:to-cyan-600 transition-all duration-300 transform hover:shadow-lg hover:shadow-blue-500/25 flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                ) : (
+                  <>
+                    <span>Sign In</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </motion.button>
+            </form>
+
+            {/* Divider */}
+            <div className="my-6 flex items-center">
+              <div className="flex-1 border-t border-slate-600"></div>
+              <span className="px-4 text-slate-400 text-sm">or</span>
+              <div className="flex-1 border-t border-slate-600"></div>
+            </div>
+
+            {/* Sign Up Link */}
+            <div className="text-center">
+              <p className="text-slate-300">
+                Don't have an account?{' '}
+                <Link 
+                  to="/signup" 
+                  className="text-blue-400 hover:text-blue-300 font-semibold transition-colors duration-300"
+                >
+                  Sign up for free
+                </Link>
+              </p>
+            </div>
+
+            {/* Back to Home */}
+            <div className="mt-6 text-center">
+              <Link 
+                to="/" 
+                className="text-slate-400 hover:text-white text-sm transition-colors duration-300"
+              >
+                ← Back to Home
+              </Link>
+            </div>
+          </div>
+        </motion.div>
+      </div>
     </div>
   )
 }

@@ -4,6 +4,7 @@ const http = require('http');
 const socketIo = require('socket.io');
 const mongoose = require('../backend/db');
 const cors = require('cors');
+const UserStatsService = require('../backend/services/userStatsService');
 
 // Connect to MongoDB
 mongoose.connect(process.env.MONGODB_URL || 'mongodb://localhost:27017/paper-trading-battle', {
@@ -74,6 +75,24 @@ class MatchRoomManager {
     const room = this.rooms.get(matchId);
     if (!room) {
       console.log(`❌ Room ${matchId} not found - this means the match hasn't started yet`);
+      socket.emit('join_error', { 
+        error: 'Room not found', 
+        message: 'Match room has not been created yet. Please wait a moment and try again.',
+        matchId,
+        userId
+      });
+      return false;
+    }
+
+    // Check if room is ready (has match data)
+    if (!room.matchData) {
+      console.log(`❌ Room ${matchId} exists but has no match data`);
+      socket.emit('join_error', { 
+        error: 'Room not ready', 
+        message: 'Match room is not ready yet. Please wait a moment and try again.',
+        matchId,
+        userId
+      });
       return false;
     }
 
@@ -319,10 +338,40 @@ class MatchRoomManager {
           realizedPnL: realizedPnL
         });
 
+        // Add trade to match's trades array for this player
+        const tradeData = {
+          symbol: position.symbol,
+          type: position.side === 'long' ? 'sell' : 'buy', // Opposite side to close position
+          quantity: position.size,
+          price: currentPrice,
+          timestamp: new Date(),
+          pnl: realizedPnL,
+          positionId: position._id,
+          closeType: 'auto_close' // Indicate this was an automatic close
+        };
+        
+        console.log(`📊 Trade data to be added:`, JSON.stringify(tradeData, null, 2));
+        
+        try {
+          await Match.findByIdAndUpdate(matchId, {
+            $push: {
+              'players.$[elem].trades': tradeData
+            }
+          }, {
+            arrayFilters: [{ 'elem.user': position.user }]
+          });
+          console.log(`✅ Successfully added trade to match ${matchId}`);
+        } catch (tradeError) {
+          console.error(`❌ Error adding trade to match:`, tradeError);
+          console.error(`❌ Trade data that failed:`, tradeData);
+          // Continue with the rest of the process even if trade logging fails
+        }
+
         // For match end, we need to return margin + PnL
         // The margin was deducted when position was opened, so we need to return it
         const totalReturn = position.margin + realizedPnL;
         console.log(`💰 Position ${position._id}: Margin=${position.margin}, PnL=${realizedPnL}, Total Return=${totalReturn}`);
+        console.log(`📊 Added trade to match trades array: ${position.symbol} ${position.side === 'long' ? 'sell' : 'buy'} ${position.size} @ ${currentPrice}`);
 
         // Get current user balance before update
         const userBefore = await User.findById(position.user);
@@ -347,12 +396,40 @@ class MatchRoomManager {
           arrayFilters: [{ 'elem.user': position.user }]
         });
 
+        // Add trade to match's trades array for this player
+        await Match.findByIdAndUpdate(matchId, {
+          $push: {
+            'players.$[elem].trades': {
+              symbol: position.symbol,
+              type: position.side === 'long' ? 'sell' : 'buy', // Opposite side to close position
+              quantity: position.size,
+              price: currentPrice,
+              timestamp: new Date(),
+              pnl: realizedPnL,
+              positionId: position._id
+            }
+          }
+        }, {
+          arrayFilters: [{ 'elem.user': position.user }]
+        });
+
+        console.log(`📊 Added trade to match trades array: ${position.symbol} ${position.side === 'long' ? 'sell' : 'buy'} ${position.size} @ ${currentPrice}`);
+
         // Get updated match data to get the new balance
         const updatedMatch = await Match.findById(matchId);
         const updatedPlayer = updatedMatch.players.find(p => p.user.toString() === position.user.toString());
         
         // Notify all users in the match about the balance update
         await this.notifyBalanceUpdate(matchId, position.user, updatedPlayer.currentBalance, realizedPnL);
+
+        // Update daily performance tracking for automatic position closure
+        try {
+          await UserStatsService.updateDailyPerformance(position.user, 'trade', realizedPnL, position.size * currentPrice);
+          console.log(`📊 Updated daily performance for automatic position close: PnL=${realizedPnL}`);
+        } catch (statsError) {
+          console.error('❌ Error updating daily performance for automatic close:', statsError);
+          // Don't fail position close if stats update fails
+        }
 
         console.log(`💰 Position ${position._id} closed: Total Return = ${totalReturn}`);
       }
@@ -492,14 +569,63 @@ class MatchRoomManager {
         endTime: new Date()
       });
 
-      // Update user stats
+      // Get match data for UserStatsService
+      const match = await Match.findById(matchId).populate('players.user');
+      if (!match) {
+        console.error('❌ Match not found for stats update');
+        return;
+      }
+
+      const player1 = match.players[0];
+      const player2 = match.players[1];
+
+      if (!player1 || !player2) {
+        console.error('❌ Could not find both players for stats update');
+        return;
+      }
+
+      // Update user stats using UserStatsService
+      try {
+        // Determine results for both players
+        let player1Result = 'draw';
+        let player2Result = 'draw';
+        
+        if (matchResult.winner) {
+          if (matchResult.winner.toString() === player1.user._id.toString()) {
+            player1Result = 'win';
+            player2Result = 'loss';
+          } else if (matchResult.winner.toString() === player2.user._id.toString()) {
+            player1Result = 'loss';
+            player2Result = 'win';
+          }
+        }
+
+        // Get P&L and volume data
+        const player1PnL = player1.realizedPnL || 0;
+        const player1Volume = player1.totalVolume || 0;
+        const player2PnL = player2.realizedPnL || 0;
+        const player2Volume = player2.totalVolume || 0;
+
+        // Update stats for both players
+        await UserStatsService.updateUserStats(player1.user._id, player1Result, player1PnL, player1Volume);
+        await UserStatsService.updateDailyPerformance(player1.user._id, player1Result, player1PnL, player1Volume);
+        
+        await UserStatsService.updateUserStats(player2.user._id, player2Result, player2PnL, player2Volume);
+        await UserStatsService.updateDailyPerformance(player2.user._id, player2Result, player2PnL, player2Volume);
+
+        console.log(`📊 Updated stats for match ${matchId}: Player1=${player1Result}, Player2=${player2Result}`);
+      } catch (statsError) {
+        console.error('❌ Error updating user stats:', statsError);
+        // Don't fail the match end if stats update fails
+      }
+
+      // Keep the old User model updates for backward compatibility
       if (matchResult.winner) {
         await User.findByIdAndUpdate(matchResult.winner, {
           $inc: { 'stats.wins': 1, 'stats.currentStreak': 1 }
         });
         
         // Update loser stats
-        const match = await Match.findById(matchId);
         const loser = match.players.find(p => p.user.toString() !== matchResult.winner.toString());
         if (loser) {
           await User.findByIdAndUpdate(loser.user, {
@@ -570,6 +696,40 @@ app.post('/create-room', async (req, res) => {
   } catch (error) {
     console.error('❌ Error creating match room:', error);
     res.status(500).json({ success: false, message: 'Error creating match room' });
+  }
+});
+
+// Check if a room is ready
+app.get('/room-status/:matchId', (req, res) => {
+  try {
+    const { matchId } = req.params;
+    const room = roomManager.rooms.get(matchId);
+    
+    if (!room) {
+      return res.json({ 
+        success: false, 
+        ready: false, 
+        message: 'Room not found' 
+      });
+    }
+    
+    if (!room.matchData) {
+      return res.json({ 
+        success: false, 
+        ready: false, 
+        message: 'Room not ready' 
+      });
+    }
+    
+    res.json({ 
+      success: true, 
+      ready: true, 
+      message: 'Room is ready',
+      userCount: room.users.size
+    });
+  } catch (error) {
+    console.error('❌ Error checking room status:', error);
+    res.status(500).json({ success: false, message: 'Error checking room status' });
   }
 });
 

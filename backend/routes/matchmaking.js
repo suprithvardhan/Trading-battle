@@ -107,7 +107,7 @@ router.get('/status', auth, async (req, res) => {
       return res.json({
         success: true,
         match: {
-          id: activeMatch._id,
+          _id: activeMatch._id,
           status: activeMatch.status,
           opponent: {
             username: opponent.username,

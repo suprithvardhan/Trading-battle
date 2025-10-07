@@ -7,7 +7,10 @@ class MatchConnectionService {
     this.subscribers = new Map();
   }
 
-  connect(userId, matchId) {
+  async connect(userId, matchId, retryCount = 0) {
+    const maxRetries = 5;
+    const retryDelay = 2000; // 2 seconds
+
     // Disconnect existing connection first
     if (this.socket) {
       console.log('🔌 Disconnecting existing match service connection');
@@ -16,7 +19,39 @@ class MatchConnectionService {
       this.isConnected = false;
     }
 
-    console.log(`🔌 Connecting to match service for user ${userId}, match ${matchId}`);
+    console.log(`🔌 Connecting to match service for user ${userId}, match ${matchId} (attempt ${retryCount + 1}/${maxRetries + 1})`);
+    
+    // Check if room is ready first
+    try {
+      const response = await fetch(`http://localhost:5002/room-status/${matchId}`);
+      const roomStatus = await response.json();
+      
+      if (!roomStatus.ready) {
+        console.log(`⏳ Room not ready: ${roomStatus.message}`);
+        if (retryCount < maxRetries) {
+          console.log(`🔄 Retrying room check in ${retryDelay}ms...`);
+          setTimeout(() => {
+            this.connect(userId, matchId, retryCount + 1);
+          }, retryDelay);
+          return;
+        } else {
+          console.error('❌ Max room readiness retries exceeded');
+          this.notifySubscribers('connection_failed', { error: 'Room not ready after max retries' });
+          return;
+        }
+      }
+      
+      console.log(`✅ Room is ready for match ${matchId}`);
+    } catch (error) {
+      console.error('❌ Error checking room status:', error);
+      if (retryCount < maxRetries) {
+        console.log(`🔄 Retrying room check in ${retryDelay}ms...`);
+        setTimeout(() => {
+          this.connect(userId, matchId, retryCount + 1);
+        }, retryDelay);
+        return;
+      }
+    }
     
     this.socket = io('http://localhost:5002', {
       transports: ['websocket'],
@@ -28,13 +63,24 @@ class MatchConnectionService {
       console.log('✅ Connected to match service');
       this.isConnected = true;
       
-      // Join the match room
-      this.socket.emit('join_match', { matchId, userId });
+      // Join the match room with retry mechanism
+      this.joinMatchRoom(userId, matchId, retryCount);
     });
 
     this.socket.on('connect_error', (error) => {
       console.error('❌ Match service connection error:', error);
       this.isConnected = false;
+      
+      // Retry connection if we haven't exceeded max retries
+      if (retryCount < maxRetries) {
+        console.log(`🔄 Retrying connection in ${retryDelay}ms...`);
+        setTimeout(() => {
+          this.connect(userId, matchId, retryCount + 1);
+        }, retryDelay);
+      } else {
+        console.error('❌ Max connection retries exceeded');
+        this.notifySubscribers('connection_failed', { error: 'Max retries exceeded' });
+      }
     });
 
     this.socket.on('error', (error) => {
@@ -48,7 +94,16 @@ class MatchConnectionService {
 
     this.socket.on('join_error', (data) => {
       console.error('❌ Failed to join match room:', data);
-      this.notifySubscribers('join_error', data);
+      
+      // Retry joining if room not found and we haven't exceeded max retries
+      if (data.error === 'Room not found' && retryCount < maxRetries) {
+        console.log(`🔄 Room not found, retrying in ${retryDelay}ms...`);
+        setTimeout(() => {
+          this.joinMatchRoom(userId, matchId, retryCount + 1);
+        }, retryDelay);
+      } else {
+        this.notifySubscribers('join_error', data);
+      }
     });
 
     // Listen for balance update events
@@ -86,6 +141,16 @@ class MatchConnectionService {
       console.log('🔌 Disconnected from match service');
       this.isConnected = false;
     });
+  }
+
+  joinMatchRoom(userId, matchId, retryCount = 0) {
+    if (!this.socket || !this.isConnected) {
+      console.error('❌ Cannot join match room: not connected to service');
+      return;
+    }
+
+    console.log(`🏠 Joining match room: ${matchId} for user: ${userId}`);
+    this.socket.emit('join_match', { matchId, userId });
   }
 
   disconnect() {

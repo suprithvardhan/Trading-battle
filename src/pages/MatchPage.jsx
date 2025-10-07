@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useParams } from 'react-router-dom'
 import { useTheme } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
@@ -31,6 +32,7 @@ import OrderManagement from '../components/OrderManagement'
 import PositionCard from '../components/PositionCard'
 
 const MatchPage = () => {
+  const { id: matchId } = useParams()
   const { isDark } = useTheme()
   const { user } = useAuth()
   const { showSuccess, showError } = useToast()
@@ -67,8 +69,12 @@ const MatchPage = () => {
   const fetchMatchData = async () => {
     try {
       setLoading(true)
-      // Get match ID from URL params or state
-      const matchId = new URLSearchParams(window.location.search).get('matchId') || 'mock-match-id'
+      // Get match ID from URL params
+      if (!matchId) {
+        console.error('No match ID provided')
+        setMatchData(null)
+        return
+      }
       
       const response = await api.get(`/matches/${matchId}`)
       
@@ -92,7 +98,7 @@ const MatchPage = () => {
   // Fetch match data on component mount
   useEffect(() => {
     fetchMatchData()
-  }, [user])
+  }, [user, matchId])
 
   // Handle optimistic balance updates
   const handleOptimisticBalanceUpdate = (marginDeduction) => {
@@ -106,7 +112,10 @@ const MatchPage = () => {
   // Update balance without full re-render
   const updateBalanceOnly = async () => {
     try {
-      const matchId = new URLSearchParams(window.location.search).get('matchId') || 'mock-match-id'
+      if (!matchId) {
+        console.error('No match ID available for balance update')
+        return
+      }
       const response = await api.get(`/matches/${matchId}`)
       
       if (response.data.success && response.data.match) {
@@ -155,19 +164,30 @@ const MatchPage = () => {
 
   // Set up WebSocket for real-time price updates for TradingPanel
   useEffect(() => {
-    if (!selectedTicker) return
+    if (!selectedTicker || !matchData || loading) return
 
     let unsubscribe = null
 
-    // Import the WebSocket service
-    import('../services/binanceWebSocket').then(({ default: binanceWebSocketService }) => {
-      console.log(`📡 Setting up WebSocket for TradingPanel: ${selectedTicker}`)
-      
-      // Connect to WebSocket
-      binanceWebSocketService.connect(selectedTicker)
-      
-      // Subscribe to price updates
-      unsubscribe = binanceWebSocketService.subscribe(handlePriceUpdate)
+    // Import the WebSocket service with error handling and timeout
+    const importPromise = import('../services/binanceWebSocket')
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('WebSocket service import timeout')), 5000)
+    )
+    
+    Promise.race([importPromise, timeoutPromise]).then(({ default: binanceWebSocketService }) => {
+      try {
+        console.log(`📡 Setting up WebSocket for TradingPanel: ${selectedTicker}`)
+        
+        // Connect to WebSocket
+        binanceWebSocketService.connect(selectedTicker)
+        
+        // Subscribe to price updates
+        unsubscribe = binanceWebSocketService.subscribe(handlePriceUpdate)
+      } catch (error) {
+        console.error('❌ Error setting up WebSocket:', error)
+      }
+    }).catch(error => {
+      console.error('❌ Error importing WebSocket service:', error)
     })
 
     // Cleanup function
@@ -177,21 +197,38 @@ const MatchPage = () => {
         unsubscribe()
       }
     }
-  }, [selectedTicker, handlePriceUpdate])
+  }, [selectedTicker, handlePriceUpdate, matchData, loading])
 
   // Set up Match Connection Service
   useEffect(() => {
-    if (!matchData?._id || !user?.id) return
+    if (!matchData?._id || !user?.id || loading) return
 
     console.log(`🔌 Connecting to match connection service for user ${user.id}, match ${matchData._id}`)
     
     let unsubscribeMatchEnded = null
     let unsubscribeBalanceUpdated = null
     
-    // Import and connect to match connection service
+    // Add a small delay to ensure the room is created on the server
+    const connectWithDelay = () => {
+      setTimeout(() => {
+        // Import and connect to match connection service with error handling
+        import('../services/matchConnectionService').then(({ default: matchConnectionService }) => {
+          try {
+            matchConnectionService.connect(user.id, matchData._id)
+          } catch (error) {
+            console.error('❌ Error connecting to match connection service:', error)
+          }
+        }).catch(error => {
+          console.error('❌ Error importing match connection service:', error)
+        })
+      }, 1000) // 1 second delay to ensure room is created
+    }
+    
+    // Start the connection process
+    connectWithDelay()
+    
+    // Import and set up event listeners
     import('../services/matchConnectionService').then(({ default: matchConnectionService }) => {
-      matchConnectionService.connect(user.id, matchData._id)
-      
       // Subscribe to balance update events
       unsubscribeBalanceUpdated = matchConnectionService.subscribe('balance_updated', (data) => {
         console.log('💰 Balance update notification received:', data)
@@ -254,6 +291,8 @@ const MatchPage = () => {
         setShowResultOverlay(true)
         setMatchEnded(true)
       })
+    }).catch(error => {
+      console.error('❌ Error importing match connection service:', error)
     })
     
     // Cleanup function
@@ -263,13 +302,15 @@ const MatchPage = () => {
       
       import('../services/matchConnectionService').then(({ default: matchConnectionService }) => {
         matchConnectionService.disconnect()
+      }).catch(error => {
+        console.error('❌ Error disconnecting match connection service:', error)
       })
     }
-  }, [matchData, user])
+  }, [matchData, user, loading])
 
   // Set up Order Execution Service connection
   useEffect(() => {
-    if (!matchData?._id || !user?.id) return
+    if (!matchData?._id || !user?.id || loading) return
 
     console.log(`🔌 Connecting to order execution service for user ${user.id}, match ${matchData._id}`)
     
@@ -278,9 +319,13 @@ const MatchPage = () => {
     let unsubscribePositionClosed = null
     let unsubscribePositionUpdated = null
     
-    // Import and connect to order execution service
+    // Import and connect to order execution service with error handling
     import('../services/orderExecutionService').then(({ default: orderExecutionService }) => {
-      orderExecutionService.connect(user.id, matchData._id)
+      try {
+        orderExecutionService.connect(user.id, matchData._id)
+      } catch (error) {
+        console.error('❌ Error connecting to order execution service:', error)
+      }
       
       // Subscribe to order executions
       unsubscribeExecutions = orderExecutionService.subscribe('order_executed', (data) => {
@@ -329,6 +374,8 @@ const MatchPage = () => {
           }))
         }
       })
+    }).catch(error => {
+      console.error('❌ Error importing order execution service:', error)
     })
     
     // Cleanup function
@@ -340,9 +387,11 @@ const MatchPage = () => {
       
       import('../services/orderExecutionService').then(({ default: orderExecutionService }) => {
         orderExecutionService.disconnect()
+      }).catch(error => {
+        console.error('❌ Error disconnecting order execution service:', error)
       })
     }
-  }, [matchData, user, selectedTicker])
+  }, [matchData, user, selectedTicker, loading])
 
   // Fetch orders and positions with debouncing
   const fetchOrdersAndPositions = useCallback(async () => {
@@ -665,6 +714,21 @@ const MatchPage = () => {
       }`}>
         <div className="text-center">
           <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className={`text-lg ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            Loading match...
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className={`min-h-screen flex items-center justify-center ${
+        isDark ? 'bg-gray-900' : 'bg-white'
+      }`}>
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
           <p className={`text-lg ${isDark ? 'text-white' : 'text-gray-900'}`}>
             Loading match...
           </p>

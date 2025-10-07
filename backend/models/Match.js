@@ -36,6 +36,19 @@ const matchSchema = new mongoose.Schema({
       timestamp: {
         type: Date,
         default: Date.now
+      },
+      pnl: {
+        type: Number,
+        default: 0
+      },
+      positionId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Position'
+      },
+      closeType: {
+        type: String,
+        enum: ['manual', 'tp_hit', 'sl_hit', 'auto_close'],
+        default: 'manual'
       }
     }]
   }],

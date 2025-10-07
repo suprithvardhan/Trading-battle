@@ -63,10 +63,18 @@ class LeaderboardService {
       if (leaderboardEntry) {
         await leaderboardEntry.updateMetrics(userStats);
       } else {
+        // Get the next available rank dynamically
+        const highestRank = await Leaderboard.findOne({ period: 'all-time' })
+          .sort({ rank: -1 })
+          .select('rank');
+        
+        const newRank = highestRank ? highestRank.rank + 1 : 1;
+        
         leaderboardEntry = new Leaderboard({
           user: user._id,
           username: user.username,
           period: 'all-time',
+          rank: newRank,
           ...userStats
         });
         await leaderboardEntry.save();

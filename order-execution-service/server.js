@@ -550,6 +550,26 @@ class WebSocketManager {
         arrayFilters: [{ 'elem.user': order.user }]
       });
 
+      // Add trade to match's trades array for this player
+      await Match.findByIdAndUpdate(order.match, {
+        $push: {
+          'players.$[elem].trades': {
+            symbol: order.symbol,
+            type: order.side === 'long' ? 'sell' : 'buy', // Opposite side to close position
+            quantity: order.quantity,
+            price: executionPrice,
+            timestamp: new Date(),
+            pnl: pnl,
+            positionId: position._id
+          }
+        }
+      }, {
+        arrayFilters: [{ 'elem.user': order.user }]
+      });
+
+      console.log(`📊 Added trade to match trades array: ${order.symbol} ${order.side === 'long' ? 'sell' : 'buy'} ${order.quantity} @ ${executionPrice}`);
+
+
       console.log(`✅ Position closed: PnL = ${pnl}`);
       
       // Notify user about position closure

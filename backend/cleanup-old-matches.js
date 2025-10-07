@@ -65,14 +65,15 @@ const cleanupOldMatches = async () => {
       console.log(`✅ Cleaned up expired active match: ${match._id}`);
     }
     
-    // Delete old completed matches
-    if (oldCompletedMatches.length > 0) {
-      await Match.deleteMany({
-        status: 'completed',
-        endTime: { $lt: oneDayAgo }
-      });
-      console.log(`🗑️ Deleted ${oldCompletedMatches.length} old completed matches`);
-    }
+    // Delete old completed matches - DISABLED to preserve match history
+    // if (oldCompletedMatches.length > 0) {
+    //   await Match.deleteMany({
+    //     status: 'completed',
+    //     endTime: { $lt: oneDayAgo }
+    //   });
+    //   console.log(`🗑️ Deleted ${oldCompletedMatches.length} old completed matches`);
+    // }
+    console.log(`📊 Found ${oldCompletedMatches.length} old completed matches (preserved for history)`);
     
     console.log('🎉 Cleanup completed successfully!');
     

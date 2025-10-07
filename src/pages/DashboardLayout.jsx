@@ -21,21 +21,18 @@ const DashboardLayout = () => {
   useEffect(() => {
     const timer = setTimeout(() => {
       setLoading(false)
-    }, 1500)
+    }, 1000)
     return () => clearTimeout(timer)
   }, [])
 
   if (loading) {
     return (
-      <div className={`min-h-screen flex items-center justify-center transition-colors duration-300 ${
-        isDark 
-          ? 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900' 
-          : 'bg-gradient-to-br from-slate-50 via-white to-blue-50'
-      }`}>
-        <LoadingSpinner 
-          size="large" 
-          message="Setting up your trading dashboard..." 
-        />
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-slate-600 border-t-blue-500 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-xl text-white font-semibold">Setting up your trading dashboard...</p>
+          <p className="text-slate-400 mt-2">Preparing professional trading environment</p>
+        </div>
       </div>
     )
   }
@@ -58,30 +55,24 @@ const DashboardLayout = () => {
   }
 
   return (
-    <div className={`min-h-screen transition-colors duration-300 ${
-      isDark 
-        ? 'bg-gray-900' 
-        : 'bg-white'
-    }`}>
-      <div className="flex">
-        {/* Sidebar */}
-        <Sidebar activePage={activePage} setActivePage={setActivePage} />
-        
-        {/* Main Content */}
-        <div className="flex-1 ml-64">
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-            className="p-8"
-          >
-            <AnimatePresence mode="wait">
-              <PageTransition key={activePage}>
-                {renderPage()}
-              </PageTransition>
-            </AnimatePresence>
-          </motion.div>
-        </div>
+    <div className="min-h-screen bg-slate-950 text-white">
+      {/* Sidebar */}
+      <Sidebar activePage={activePage} setActivePage={setActivePage} />
+      
+      {/* Main Content */}
+      <div className="ml-72">
+        <motion.div
+          key={activePage}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -20 }}
+          transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+          className="min-h-screen"
+        >
+          <AnimatePresence mode="wait">
+            {renderPage()}
+          </AnimatePresence>
+        </motion.div>
       </div>
     </div>
   )

@@ -79,6 +79,73 @@ const userSchema = new mongoose.Schema({
   lastLogin: {
     type: Date,
     default: Date.now
+  },
+  notifications: {
+    email: {
+      type: Boolean,
+      default: true
+    },
+    push: {
+      type: Boolean,
+      default: true
+    },
+    matches: {
+      type: Boolean,
+      default: true
+    },
+    leaderboard: {
+      type: Boolean,
+      default: false
+    },
+    achievements: {
+      type: Boolean,
+      default: true
+    },
+    trading: {
+      type: Boolean,
+      default: true
+    }
+  },
+  privacy: {
+    showStats: {
+      type: Boolean,
+      default: true
+    },
+    showBalance: {
+      type: Boolean,
+      default: false
+    },
+    showTrades: {
+      type: Boolean,
+      default: true
+    },
+    allowDirectMessages: {
+      type: Boolean,
+      default: true
+    }
+  },
+  trading: {
+    defaultLeverage: {
+      type: Number,
+      default: 10,
+      min: 1,
+      max: 75
+    },
+    defaultMarginMode: {
+      type: String,
+      enum: ['isolated', 'cross'],
+      default: 'isolated'
+    },
+    autoCloseOnLoss: {
+      type: Boolean,
+      default: false
+    },
+    maxLossPercentage: {
+      type: Number,
+      default: 50,
+      min: 10,
+      max: 90
+    }
   }
 }, {
   timestamps: true

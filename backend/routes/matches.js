@@ -6,6 +6,7 @@ const User = require('../models/User');
 const Trade = require('../models/Trade');
 const Asset = require('../models/Asset');
 const Order = require('../models/Order');
+const UserStatsService = require('../services/userStatsService');
 
 // @route   GET /api/matches/active
 // @desc    Get user's active matches
@@ -26,6 +27,63 @@ router.get('/active', auth, async (req, res) => {
   }
 });
 
+// @route   GET /api/matches/debug
+// @desc    Debug match data for specific user
+// @access  Private
+router.get('/debug', auth, async (req, res) => {
+  try {
+    console.log('🔍 DEBUG: User ID from request:', req.user.id);
+    console.log('🔍 DEBUG: User ID type:', typeof req.user.id);
+    
+    // Find matches where this user is a player
+    const matches = await Match.find({
+      'players.user': req.user.id,
+      status: 'completed'
+    })
+    .populate('players.user', 'username _id')
+    .populate('winner', 'username _id')
+    .sort({ endTime: -1 })
+    .limit(5);
+
+    console.log('🔍 DEBUG: Found matches:', matches.length);
+    
+    const debugData = matches.map(match => {
+      const userPlayer = match.players.find(p => p.user._id.toString() === req.user.id);
+      const opponentPlayer = match.players.find(p => p.user._id.toString() !== req.user.id);
+      
+      return {
+        matchId: match._id,
+        winner: match.winner,
+        winnerId: match.winner ? match.winner.toString() : null,
+        winnerUsername: match.winner ? match.winner.username : null,
+        userPlayer: userPlayer ? {
+          id: userPlayer.user._id.toString(),
+          username: userPlayer.user.username
+        } : null,
+        opponentPlayer: opponentPlayer ? {
+          id: opponentPlayer.user._id.toString(),
+          username: opponentPlayer.user.username
+        } : null,
+        isWinner: match.winner && match.winner.toString() === req.user.id,
+        status: match.status,
+        endTime: match.endTime
+      };
+    });
+
+    res.json({ 
+      success: true, 
+      debug: {
+        userId: req.user.id,
+        userIdType: typeof req.user.id,
+        matches: debugData
+      }
+    });
+  } catch (err) {
+    console.error('Debug error:', err.message);
+    res.status(500).json({ success: false, message: 'Debug error' });
+  }
+});
+
 // @route   GET /api/matches/history
 // @desc    Get user's match history
 // @access  Private
@@ -34,50 +92,112 @@ router.get('/history', auth, async (req, res) => {
     const { page = 1, limit = 20 } = req.query;
     const skip = (page - 1) * limit;
 
+    console.log('🔍 Fetching match history for user:', req.user.id);
+
+    // Get all completed matches where user is a player
     const matches = await Match.find({
       'players.user': req.user.id,
       status: 'completed'
     })
-    .populate('players.user', 'username tier')
-    .populate('winner', 'username')
+    .populate('players.user', 'username _id')
+    .populate('winner', 'username _id')
     .sort({ endTime: -1 })
     .skip(skip)
     .limit(parseInt(limit));
 
-    // Add result field to each match
-    const matchesWithResults = matches.map(match => {
-      const matchObj = match.toObject();
+    console.log('📊 Found matches:', matches.length);
+
+    // Format matches with clear win/loss/draw status
+    const formattedMatches = matches.map(match => {
       const userPlayer = match.players.find(p => p.user._id.toString() === req.user.id);
       const opponentPlayer = match.players.find(p => p.user._id.toString() !== req.user.id);
       
-      // Determine result based on winner
-      if (match.winner && match.winner.toString() === req.user.id) {
-        matchObj.result = 'win';
-        matchObj.profit = userPlayer.realizedPnL || 0;
-      } else if (match.winner && match.winner.toString() !== req.user.id) {
-        matchObj.result = 'loss';
-        matchObj.profit = userPlayer.realizedPnL || 0;
+      // Determine result from user's perspective
+      let result = 'draw';
+      let profit = 0;
+      
+      if (match.winner) {
+        const winnerId = match.winner._id ? match.winner._id.toString() : match.winner.toString();
+        const userId = req.user.id.toString();
+        
+        console.log('🎯 Match result check:', {
+          matchId: match._id,
+          winnerId,
+          userId,
+          winnerUsername: match.winner.username,
+          userUsername: userPlayer?.user?.username,
+          opponentUsername: opponentPlayer?.user?.username
+        });
+        
+        if (winnerId === userId) {
+          result = 'win';
+          profit = userPlayer?.realizedPnL || 0;
+          console.log('✅ USER WON:', match._id);
+        } else {
+          result = 'loss';
+          profit = userPlayer?.realizedPnL || 0;
+          console.log('❌ USER LOST:', match._id);
+        }
       } else {
-        matchObj.result = 'draw';
-        matchObj.profit = 0;
+        console.log('🤝 DRAW:', match._id);
       }
-      
-      // Add opponent info
-      matchObj.opponent = opponentPlayer?.username || 'Unknown';
-      matchObj.asset = 'BTC/USD'; // Default asset
-      matchObj.duration = matchObj.duration || 5; // Default duration
-      
-      return matchObj;
+
+      return {
+        _id: match._id,
+        result,
+        profit,
+        opponent: opponentPlayer?.user?.username || 'Unknown',
+        asset: 'BTC/USD',
+        duration: match.duration || 5,
+        endTime: match.endTime,
+        startTime: match.startTime,
+        userBalance: userPlayer?.currentBalance || 0,
+        opponentBalance: opponentPlayer?.currentBalance || 0,
+        // Include full match data for detailed view
+        players: match.players.map(player => ({
+          user: {
+            _id: player.user._id,
+            username: player.user.username
+          },
+          startingBalance: player.startingBalance || 0,
+          currentBalance: player.currentBalance || 0,
+          realizedPnL: player.realizedPnL || 0,
+          trades: player.trades || []
+        })),
+        winner: match.winner,
+        // Include raw data for debugging
+        debug: {
+          winnerId: match.winner?._id?.toString() || match.winner?.toString(),
+          userId: req.user.id,
+          userPlayerId: userPlayer?.user?._id?.toString(),
+          opponentPlayerId: opponentPlayer?.user?._id?.toString()
+        }
+      };
     });
+
+    // Calculate statistics
+    const wins = formattedMatches.filter(m => m.result === 'win').length;
+    const losses = formattedMatches.filter(m => m.result === 'loss').length;
+    const draws = formattedMatches.filter(m => m.result === 'draw').length;
+    const totalMatches = formattedMatches.length;
+
+    console.log('📈 Match statistics:', { wins, losses, draws, totalMatches });
 
     const total = await Match.countDocuments({
       'players.user': req.user.id,
       status: 'completed'
     });
 
-    res.json({ 
-      success: true, 
-      matches: matchesWithResults,
+    res.json({
+      success: true,
+      matches: formattedMatches,
+      statistics: {
+        total: totalMatches,
+        wins,
+        losses,
+        draws,
+        winRate: totalMatches > 0 ? Math.round((wins / totalMatches) * 100) : 0
+      },
       pagination: {
         current: parseInt(page),
         pages: Math.ceil(total / limit),
@@ -85,7 +205,7 @@ router.get('/history', auth, async (req, res) => {
       }
     });
   } catch (err) {
-    console.error(err.message);
+    console.error('❌ Match history error:', err.message);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
@@ -119,15 +239,34 @@ router.get('/:id', auth, async (req, res) => {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
 
-    // Get trades for this match
-    const trades = await Trade.find({ match: match._id })
+    // Get trades from the match document (stored by microservices)
+    // Also get trades from Trade collection for backward compatibility
+    const tradeCollection = await Trade.find({ match: match._id })
       .populate('asset', 'symbol name type')
       .sort({ executedAt: -1 });
+
+    // Extract trades from match players
+    const matchTrades = [];
+    match.players.forEach(player => {
+      if (player.trades && player.trades.length > 0) {
+        player.trades.forEach(trade => {
+          matchTrades.push({
+            ...trade,
+            user: player.user,
+            username: player.user.username || 'Unknown'
+          });
+        });
+      }
+    });
+
+    // Sort match trades by timestamp
+    matchTrades.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
     res.json({ 
       success: true, 
       match,
-      trades
+      trades: matchTrades, // Use trades from match document
+      tradeCollection // Keep for backward compatibility
     });
   } catch (err) {
     console.error(err.message);
@@ -480,7 +619,41 @@ router.post('/:id/end', auth, async (req, res) => {
     // Cancel all open orders for this match
     await cancelMatchOrders(id);
 
-    // Update user stats
+    // Update user stats using UserStatsService
+    const userPlayerForStats = match.players.find(p => p.user._id.toString() === userId);
+    const opponentPlayerForStats = match.players.find(p => p.user._id.toString() !== userId);
+    
+    let matchResult = 'draw';
+    if (winner === userId) {
+      matchResult = 'win';
+    } else if (winner) {
+      matchResult = 'loss';
+    }
+    
+    // Get P&L data for the user
+    const userPnL = userPlayerForStats.realizedPnL || 0;
+    const userVolume = userPlayerForStats.totalVolume || 0;
+    
+    // Update user stats using the new service
+    try {
+      await UserStatsService.updateUserStats(userId, matchResult, userPnL, userVolume);
+      
+      // Also update opponent stats if they exist
+      if (opponentPlayerForStats) {
+        const opponentResult = matchResult === 'win' ? 'loss' : matchResult === 'loss' ? 'win' : 'draw';
+        const opponentPnL = opponentPlayerForStats.realizedPnL || 0;
+        const opponentVolume = opponentPlayerForStats.totalVolume || 0;
+        
+        await UserStatsService.updateUserStats(opponentPlayerForStats.user._id, opponentResult, opponentPnL, opponentVolume);
+      }
+      
+      console.log(`📊 Updated stats for match ${id}: User result: ${matchResult}, P&L: ${userPnL}`);
+    } catch (error) {
+      console.error('Error updating user stats:', error);
+      // Don't fail the match end if stats update fails
+    }
+    
+    // Keep the old User model updates for backward compatibility
     if (winner === userId) {
       await User.findByIdAndUpdate(userId, { $inc: { 'stats.wins': 1, 'stats.currentStreak': 1 } });
     } else if (winner) {

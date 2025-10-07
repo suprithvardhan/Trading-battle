@@ -11,10 +11,11 @@ const assetsRoutes = require('./routes/assets');
 const matchmakingRoutes = require('./routes/matchmaking');
 const ordersRoutes = require('./routes/orders');
 const positionsRoutes = require('./routes/positions');
+const profileRoutes = require('./routes/profile');
+const settingsRoutes = require('./routes/settings');
 
 // Services
 const marketDataService = require('./services/marketData');
-const leaderboardService = require('./services/leaderboardService');
 const matchmakingService = require('./services/matchmaking');
 
 // Load environment variables
@@ -92,7 +93,6 @@ const connectDB = async () => {
       try {
         console.log('🔄 Initializing services in background...');
         await marketDataService.initialize();
-        await leaderboardService.initialize();
         console.log('✅ All services initialized');
       } catch (error) {
         console.error('❌ Error initializing services:', error);
@@ -117,6 +117,8 @@ app.use('/api/assets', assetsRoutes);
 app.use('/api/matchmaking', matchmakingRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/positions', positionsRoutes);
+app.use('/api/profile', profileRoutes);
+app.use('/api/settings', settingsRoutes);
 
 console.log('✅ Routes mounted successfully');
 console.log('✅ Orders route: /api/orders');

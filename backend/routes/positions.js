@@ -76,7 +76,25 @@ router.post('/:positionId/close', auth, async (req, res) => {
       arrayFilters: [{ 'elem.user': position.user }]
     });
 
+    // Add trade to match's trades array for this player
+    await Match.findByIdAndUpdate(position.match, {
+      $push: {
+        'players.$[elem].trades': {
+          symbol: position.symbol,
+          type: position.side === 'long' ? 'sell' : 'buy', // Opposite side to close position
+          quantity: position.size,
+          price: closePrice,
+          timestamp: new Date(),
+          pnl: position.unrealizedPnL,
+          positionId: position._id
+        }
+      }
+    }, {
+      arrayFilters: [{ 'elem.user': position.user }]
+    });
+
     console.log(`💰 Updated match realizedPnL: +${position.unrealizedPnL}`);
+    console.log(`📊 Added trade to match trades array: ${position.symbol} ${position.side === 'long' ? 'sell' : 'buy'} ${position.size} @ ${closePrice}`);
 
     // Get updated match data to get the new balance
     const updatedMatch = await Match.findById(position.match);
@@ -121,6 +139,7 @@ router.post('/:positionId/close', auth, async (req, res) => {
 
     await closeOrder.save();
     console.log(`📝 Created market order for position close: ${position.side === 'long' ? 'SELL' : 'BUY'} ${position.size} ${position.symbol} at ${closePrice}`);
+
 
     res.json({
       success: true,

@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const Match = require('../models/Match');
+const UserStatsService = require('./userStatsService');
 
 class MatchmakingService {
   constructor() {
@@ -32,7 +33,7 @@ class MatchmakingService {
     
     this.matchCleanupInterval = setInterval(async () => {
       await this.cleanupExpiredMatches();
-      await this.cleanupOldCompletedMatches();
+      // await this.cleanupOldCompletedMatches(); // DISABLED to preserve match history
     }, 30000); // Check every 30 seconds
     
     console.log('🧹 Match cleanup process started');
@@ -264,11 +265,17 @@ class MatchmakingService {
   async updateUserStatsForTie(match) {
     try {
       for (const player of match.players) {
+        const playerPnL = player.realizedPnL || 0;
+        const playerVolume = player.totalVolume || 0;
+        
+        // Update stats using UserStatsService
+        await UserStatsService.updateUserStats(player.user, 'draw', playerPnL, playerVolume);
+        await UserStatsService.updateDailyPerformance(player.user, 'draw', playerPnL, playerVolume);
+        
+        // Update user balance and tier
         const user = await User.findById(player.user);
         if (user) {
-          user.stats.totalMatches += 1;
-          user.stats.currentStreak = 0; // Reset streak on tie
-          user.stats.winRate = user.calculateWinRate();
+          user.balance = player.currentBalance;
           user.tier = user.updateTier();
           await user.save();
         }
@@ -279,28 +286,28 @@ class MatchmakingService {
     }
   }
 
-  // Clean up old completed matches (older than 24 hours)
-  async cleanupOldCompletedMatches() {
-    try {
-      const now = new Date();
-      const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 24 hours ago
-      
-      const oldMatches = await Match.find({
-        status: 'completed',
-        endTime: { $lt: oneDayAgo }
-      });
+  // Clean up old completed matches - DISABLED to preserve match history
+  // async cleanupOldCompletedMatches() {
+  //   try {
+  //     const now = new Date();
+  //     const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 24 hours ago
+  //     
+  //     const oldMatches = await Match.find({
+  //       status: 'completed',
+  //       endTime: { $lt: oneDayAgo }
+  //     });
 
-      if (oldMatches.length > 0) {
-        await Match.deleteMany({
-          status: 'completed',
-          endTime: { $lt: oneDayAgo }
-        });
-        console.log(`🗑️ Cleaned up ${oldMatches.length} old completed matches`);
-      }
-    } catch (error) {
-      console.error('❌ Error cleaning up old completed matches:', error);
-    }
-  }
+  //     if (oldMatches.length > 0) {
+  //       await Match.deleteMany({
+  //         status: 'completed',
+  //         endTime: { $lt: oneDayAgo }
+  //       });
+  //       console.log(`🗑️ Cleaned up ${oldMatches.length} old completed matches`);
+  //     }
+  //   } catch (error) {
+  //     console.error('❌ Error cleaning up old completed matches:', error);
+  //   }
+  // }
 
 
   // Create a new match
@@ -465,32 +472,41 @@ class MatchmakingService {
       const winner = match.players.find(p => p.user.toString() === match.winner.toString());
       const loser = match.players.find(p => p.user.toString() !== match.winner.toString());
 
+      // Get P&L and volume data for both players
+      const winnerPnL = winner.realizedPnL || 0;
+      const winnerVolume = winner.totalVolume || 0;
+      const loserPnL = loser.realizedPnL || 0;
+      const loserVolume = loser.totalVolume || 0;
+
+      // Update winner stats using UserStatsService
       if (winner) {
+        await UserStatsService.updateUserStats(winner.user, 'win', winnerPnL, winnerVolume);
+        await UserStatsService.updateDailyPerformance(winner.user, 'win', winnerPnL, winnerVolume);
+        
+        // Update user balance
         const winnerUser = await User.findById(winner.user);
         if (winnerUser) {
-          winnerUser.stats.wins += 1;
-          winnerUser.stats.totalMatches += 1;
-          winnerUser.stats.currentStreak += 1;
-          winnerUser.stats.bestStreak = Math.max(winnerUser.stats.bestStreak, winnerUser.stats.currentStreak);
-          winnerUser.stats.winRate = winnerUser.calculateWinRate();
-          winnerUser.tier = winnerUser.updateTier();
           winnerUser.balance = winner.currentBalance;
+          winnerUser.tier = winnerUser.updateTier();
           await winnerUser.save();
         }
       }
 
+      // Update loser stats using UserStatsService
       if (loser) {
+        await UserStatsService.updateUserStats(loser.user, 'loss', loserPnL, loserVolume);
+        await UserStatsService.updateDailyPerformance(loser.user, 'loss', loserPnL, loserVolume);
+        
+        // Update user balance
         const loserUser = await User.findById(loser.user);
         if (loserUser) {
-          loserUser.stats.losses += 1;
-          loserUser.stats.totalMatches += 1;
-          loserUser.stats.currentStreak = 0;
-          loserUser.stats.winRate = loserUser.calculateWinRate();
-          loserUser.tier = loserUser.updateTier();
           loserUser.balance = loser.currentBalance;
+          loserUser.tier = loserUser.updateTier();
           await loserUser.save();
         }
       }
+
+      console.log(`📊 Updated matchmaking stats for match ${match._id}: Winner P&L=${winnerPnL}, Loser P&L=${loserPnL}`);
     } catch (error) {
       console.error('Error updating user stats:', error);
     }
